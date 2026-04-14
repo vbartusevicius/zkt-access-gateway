@@ -21,7 +21,7 @@ ZKTeco C3 and C4 devices use a proprietary Windows "PULL SDK" (`pl*.dll`). This 
 The simplest way is using Docker Compose. Ensure your Pi or server has Docker installed.
 
 1. Create a `data/` directory adjacent to the Compose file if needed.
-2. **Configuration**: Edit your `docker-compose.yml` to specify your `ZKT_CONNSTR` (e.g. `protocol=TCP,ipaddress=192.168.1.5,port=4370,timeout=4000,passwd=`) and your MQTT Broker credentials using mapping variables. The system strictly respects 12-Factor statelessness. Configuration is only loaded from these ENVs on boot.
+2. **Configuration**: Edit your `docker-compose.yml` to specify your `ZKT_CONNSTR` (e.g. `protocol=TCP,ipaddress=192.168.1.5,port=4370,timeout=4000,passwd=`) and your MQTT Broker credentials using mapping variables.
 3. Build and start the infrastructure:
 ```bash
 docker compose up --build -d
