@@ -2,6 +2,12 @@
 
 A Dockerized gateway designed to bridge ZKTeco C3 and C4 Access Controllers to modern integrations (like Home Assistant) over MQTT, featuring a beautiful real-time Web UI.
 
+## Screenshots
+
+![Web UI Dashboard](docs/dashboard.png)
+![Authorized Personnel & Users](docs/users.png)
+![Activity Logs & Doors](docs/doors.png)
+
 ## Working Principles
 
 ZKTeco C3 and C4 devices use a proprietary Windows "PULL SDK" (`pl*.dll`). This application circumvents compatibility issues, allowing deployment straight to an ARM64 system like a Raspberry Pi:

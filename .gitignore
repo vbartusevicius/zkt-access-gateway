@@ -1,5 +1,6 @@
 .vscode/*
 .cache/*
 .venv/*
+.DS_Store
 __pycache__/*
 data/gateway.db
