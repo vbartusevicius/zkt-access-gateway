@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ZKTeco Access Gateway</title>
+    <meta name="description" content="Manage and monitor your ZKTeco C3 Access Controllers via MQTT">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/src/style.css">
+  </head>
+  <body class="dark-theme">
+    <div class="app-container">
+      <!-- Sidebar -->
+      <aside class="sidebar glass-panel">
+        <div class="logo">
+          <div class="logo-icon"></div>
+          <h1>ZKAccess Gateway</h1>
+        </div>
+        <nav class="nav-menu">
+          <button class="nav-item active" data-target="dashboard">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
+            Dashboard
+          </button>
+          <button class="nav-item" data-target="doors">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M12 5l7 7-7 7"></path></svg>
+            Doors & Events
+          </button>
+          <button class="nav-item" data-target="settings">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            Settings
+          </button>
+        </nav>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        <!-- Dashboard View -->
+        <section id="dashboard" class="view-section active">
+          <header class="view-header">
+            <h2>System Overview</h2>
+            <div class="status-badge connected" id="controller-status">
+              <span class="pulse-dot"></span>
+              <span class="status-text">Connected</span>
+            </div>
+          </header>
+          
+          <div class="stats-grid">
+            <div class="stat-card glass-panel interactive">
+              <h3>Device IP</h3>
+              <p class="stat-value" id="stat-ip">--</p>
+            </div>
+            <div class="stat-card glass-panel interactive">
+              <h3>Serial Number</h3>
+              <p class="stat-value" id="stat-sn">--</p>
+            </div>
+            <div class="stat-card glass-panel interactive">
+              <h3>Total Users</h3>
+              <p class="stat-value" id="stat-users">--</p>
+            </div>
+            <div class="stat-card glass-panel interactive">
+              <h3>MQTT Status</h3>
+              <p class="stat-value" id="stat-mqtt">--</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Doors View -->
+        <section id="doors" class="view-section hidden">
+          <header class="view-header">
+            <h2>Doors & Relays</h2>
+            <button class="btn primary" id="refresh-doors-btn">Refresh</button>
+          </header>
+          
+          <div class="doors-grid" id="doors-container">
+            <!-- Dynamic Content populated by JS -->
+          </div>
+
+          <div class="events-log glass-panel">
+            <h3>Recent Events</h3>
+            <div class="table-container">
+              <table id="events-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Door</th>
+                    <th>Card</th>
+                    <th>Event Type</th>
+                  </tr>
+                </thead>
+                <tbody id="events-tbody">
+                  <!-- Dynamic Content -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Settings View -->
+        <section id="settings" class="view-section hidden">
+          <header class="view-header">
+            <h2>Configuration</h2>
+            <button class="btn primary" id="save-settings-btn">Save Rules</button>
+          </header>
+
+          <div class="settings-grid">
+            <div class="settings-card glass-panel">
+              <h3>ZKTeco Connection String</h3>
+              <p class="helper-text">Enter the full connection string or use IP address.</p>
+              <div class="form-group">
+                <label>Connection String</label>
+                <input type="text" id="setting-zkt-connstr" placeholder="protocol=TCP,ipaddress=192.168.1.201,port=4370,timeout=4000,passwd=">
+              </div>
+              <button class="btn secondary" id="test-conn-btn">Test Connection</button>
+              <div id="test-conn-result" class="test-result"></div>
+            </div>
+
+            <div class="settings-card glass-panel">
+              <h3>MQTT / Home Assistant</h3>
+              <div class="form-group">
+                <label>Broker Address</label>
+                <input type="text" id="setting-mqtt-broker" placeholder="192.168.1.100">
+              </div>
+              <div class="form-group">
+                <label>Port</label>
+                <input type="number" id="setting-mqtt-port" placeholder="1883">
+              </div>
+              <div class="form-group">
+                <label>Username (Optional)</label>
+                <input type="text" id="setting-mqtt-user">
+              </div>
+              <div class="form-group">
+                <label>Password (Optional)</label>
+                <input type="password" id="setting-mqtt-password">
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container" class="toast-container"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
