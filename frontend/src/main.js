@@ -66,9 +66,40 @@ class AppState {
     }, 15000);
 
     // Bind event listeners
-    document.getElementById('refresh-doors-btn').addEventListener('click', () => this.fetchEvents());
-    document.getElementById('refresh-users-btn').addEventListener('click', () => this.fetchUsers());
-    document.getElementById('refresh-hardware-btn').addEventListener('click', () => this.fetchHardware());
+    document.getElementById('refresh-doors-btn')?.addEventListener('click', () => this.fetchEvents());
+    document.getElementById('refresh-users-btn')?.addEventListener('click', () => this.fetchUsers());
+    document.getElementById('refresh-hardware-btn')?.addEventListener('click', () => this.fetchHardware());
+    
+    // Quick Actions
+    document.getElementById('sync-time-btn')?.addEventListener('click', () => this.triggerDeviceAction('sync-time'));
+    document.getElementById('reboot-btn')?.addEventListener('click', () => {
+        if(confirm("Are you sure you want to reboot the controller? This will take it offline for a few moments!")) {
+            this.triggerDeviceAction('reboot');
+        }
+    });
+
+    // User Form Handlers
+    document.getElementById('create-user-form')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        this.createUser();
+    });
+    document.getElementById('autofill-card-btn')?.addEventListener('click', () => this.autofillLatestCard());
+  }
+  
+  async triggerDeviceAction(action) {
+    try {
+      showToast(`Triggering ${action}...`, 'neutral');
+      const res = await fetch(`${API_BASE}/device/${action}`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+          showToast(`Successfully completed ${action}!`, 'success');
+      } else {
+          showToast(`Failed: ${data.detail || 'Device may be busy. Try again soon.'}`, 'error');
+      }
+    } catch (e) {
+      console.error(e);
+      showToast(`Error: ${e.message}`, 'error');
+    }
   }
 
   async fetchStatus() {
@@ -145,7 +176,7 @@ class AppState {
       tbody.innerHTML = '';
       
       if (!data.users || data.users.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color: var(--text-secondary);">No assigned users</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: var(--text-secondary);">No assigned users</td></tr>';
         return;
       }
 
@@ -156,13 +187,86 @@ class AppState {
           <td>${u.card || 'No Card'}</td>
           <td>${u.group_id || 'Default'}</td>
           <td>${u.super_authorize ? '<span style="color:var(--color-primary)">Admin</span>' : 'Standard'}</td>
+          <td>${u.last_used ? new Date(u.last_used).toLocaleString() : '<span style="color:var(--text-secondary)">Never</span>'}</td>
+          <td>
+            <button class="btn primary delete-user-btn" data-pin="${u.pin}" style="background:var(--color-danger); padding:0.25rem 0.5rem; font-size:0.75rem;">Delete</button>
+          </td>
         `;
         tbody.appendChild(tr);
+      });
+
+      // Bind delete buttons
+      document.querySelectorAll('.delete-user-btn').forEach(btn => {
+         btn.addEventListener('click', async (e) => {
+             const pin = e.currentTarget.dataset.pin;
+             if (confirm(`Are you sure you want to delete user ${pin}?`)) {
+                 try {
+                     const res = await fetch(`${API_BASE}/users/${pin}`, { method: 'DELETE' });
+                     const resData = await res.json();
+                     if (resData.success) {
+                         showToast(`User ${pin} deleted!`, 'success');
+                         this.fetchUsers();
+                     } else {
+                         showToast(`Failed to delete user: ${resData.detail}`, 'error');
+                     }
+                 } catch (err) {
+                    showToast(`Error: ${err.message}`, 'error');
+                 }
+             }
+         });
       });
       
     } catch (e) {
       console.error(e);
     }
+  }
+
+  async createUser() {
+    const pin = document.getElementById('new-user-pin').value;
+    const card = document.getElementById('new-user-card').value;
+    const group = document.getElementById('new-user-group').value;
+    const admin = document.getElementById('new-user-admin').checked;
+
+    try {
+        const res = await fetch(`${API_BASE}/users`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                pin, card, group, super_authorize: admin
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('User created successfully!', 'success');
+            document.getElementById('create-user-form').reset();
+            this.fetchUsers();
+        } else {
+            showToast(`Failed: ${data.detail}`, 'error');
+        }
+    } catch(err) {
+        showToast('System Error', 'error');
+    }
+  }
+
+  async autofillLatestCard() {
+     try {
+       const res = await fetch(`${API_BASE}/events`);
+       const data = await res.json();
+       if (data.events && data.events.length > 0) {
+           // Find latest event with unregistered card (type 27) or any card
+           const event = data.events[0];
+           if (event && event.card_id) {
+               document.getElementById('new-user-card').value = event.card_id;
+               showToast('Card ID Autofilled from latest swipe!', 'success');
+           } else {
+               showToast('Latest event did not contain a Card ID.', 'error');
+           }
+       } else {
+           showToast('No events found to pull card IDs from.', 'error');
+       }
+     } catch (e) {
+       showToast('Error fetching events.', 'error');
+     }
   }
 
   async fetchHardware() {
@@ -196,17 +300,44 @@ class AppState {
 
       // Render Each Door separately
       (data.doors || []).forEach(door => {
+        const isDisabled = door.verify_mode.includes('Custom/Unsupported (7)');
+        const statusText = isDisabled ? 'Disabled / Not Present' : 'Operational';
+        const colorStyle = isDisabled ? 'border-left: 4px solid var(--text-secondary); opacity: 0.7;' : 'border-left: 4px solid var(--color-accent)';
+        
+        // Find if there's a matching relay (door 1 usually maps to relay 1)
+        const relayBtnHTML = isDisabled ? '' : `<button class="btn secondary trigger-door-btn" data-relay="${door.door_id}" style="margin-top: 0.5rem; float:right;">Remote Trigger (5s)</button>`;
+
         container.innerHTML += `
-          <div class="stat-card glass-panel" style="border-left: 4px solid var(--color-accent)">
+          <div class="stat-card glass-panel" style="${colorStyle}">
             <h3>Door ${door.door_id} Node</h3>
-            <p class="stat-value" style="font-size:1.25rem;">Operational</p>
+            <p class="stat-value" style="font-size:1.25rem;">${statusText}</p>
             <div style="margin-top:1rem;font-size:0.875rem;color:var(--text-secondary);">
                Verify Mode Configured: ${door.verify_mode}
+               ${relayBtnHTML}
             </div>
           </div>
         `;
       });
       
+      // Bind door remote triggers
+      document.querySelectorAll('.trigger-door-btn').forEach(btn => {
+         btn.addEventListener('click', async (e) => {
+             const relayId = e.currentTarget.dataset.relay;
+             try {
+                showToast(`Triggering Relay ${relayId}...`, 'neutral');
+                const res = await fetch(`${API_BASE}/relays/${relayId}/trigger`, { method: 'POST' });
+                const resData = await res.json();
+                if (resData.success) {
+                    showToast(`Relay ${relayId} successfully triggered!`, 'success');
+                } else {
+                    showToast(`Remote Trigger Failed: ${resData.detail}`, 'error');
+                }
+             } catch(err) {
+                showToast(`System Error`, 'error');
+             }
+         });
+      });
+
     } catch (e) {
       console.error(e);
     }

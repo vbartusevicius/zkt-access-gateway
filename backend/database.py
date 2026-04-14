@@ -56,8 +56,8 @@ def save_events(events_list):
         for ev in events_list:
             cursor.execute('''
                 SELECT id FROM events 
-                WHERE timestamp = ? AND door_id = ? AND event_type = ? AND card_id = ?
-            ''', (ev['timestamp'], ev.get('door_id', 0), ev.get('event_type', 0), ev.get('card_id', '')))
+                WHERE timestamp = ? AND door_id = ? AND event_type = ? AND card_id = ? AND pin = ?
+            ''', (ev['timestamp'], ev.get('door_id', 0), ev.get('event_type', 0), ev.get('card_id', ''), ev.get('pin', '')))
             if not cursor.fetchone():
                 cursor.execute('''
                     INSERT INTO events (timestamp, door_id, card_id, pin, event_type)
@@ -105,7 +105,12 @@ def get_latest_events(limit=50):
 def get_users():
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users")
+        cursor.execute('''
+            SELECT u.*, MAX(e.timestamp) as last_used
+            FROM users u
+            LEFT JOIN events e ON (u.pin = e.pin OR (u.card != '' AND u.card = e.card_id))
+            GROUP BY u.pin
+        ''')
         return [dict(row) for row in cursor.fetchall()]
 
 def get_hardware():

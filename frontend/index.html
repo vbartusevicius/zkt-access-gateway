@@ -31,10 +31,6 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
             Users & Keys
           </button>
-          <button class="nav-item" data-target="hardware">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
-            Hardware Overview
-          </button>
         </nav>
       </aside>
 
@@ -44,13 +40,20 @@
         <section id="dashboard" class="view-section active">
           <header class="view-header">
             <h2>System Overview</h2>
-            <div class="status-badge connected" id="controller-status">
-              <span class="pulse-dot"></span>
-              <span class="status-text">Connected</span>
+            <div style="display:flex; gap:10px; align-items: center;">
+              <button class="btn primary" id="sync-time-btn">Sync Time</button>
+              <button class="btn primary" style="background:var(--color-danger);" id="reboot-btn">Reboot Device</button>
             </div>
           </header>
           
           <div class="stats-grid">
+            <div class="stat-card glass-panel interactive">
+              <h3>Controller Status</h3>
+              <div class="status-badge connected" id="controller-status" style="width: max-content; padding: 0.5rem 1rem; margin-top: 0.5rem;">
+                <span class="pulse-dot"></span>
+                <span class="status-text">Connected</span>
+              </div>
+            </div>
             <div class="stat-card glass-panel interactive">
               <h3>Device IP</h3>
               <p class="stat-value" id="stat-ip">--</p>
@@ -68,21 +71,27 @@
               <p class="stat-value" id="stat-mqtt">--</p>
             </div>
           </div>
+          
+          <div style="margin-top: 2rem;">
+            <header class="view-header">
+                <h2>Hardware Topology</h2>
+                <button class="btn primary" id="refresh-hardware-btn">Refresh</button>
+            </header>
+            <div class="stats-grid" id="hw-params-container">
+                <!-- Dynamic Content -->
+            </div>
+          </div>
         </section>
 
-        <!-- Doors View -->
+        <!-- Events Log -->
         <section id="doors" class="view-section hidden">
           <header class="view-header">
-            <h2>Doors & Relays</h2>
+            <h2>Activity Logs</h2>
             <button class="btn primary" id="refresh-doors-btn">Refresh</button>
           </header>
-          
-          <div class="doors-grid" id="doors-container">
-            <!-- Dynamic Content populated by JS -->
-          </div>
 
-          <div class="events-log glass-panel">
-            <h3>Recent Events</h3>
+          <div class="events-log glass-panel" style="padding: 1.5rem;">
+            <h3 style="margin-bottom: 1.5rem;">Recent Events</h3>
             <div class="table-container">
               <table id="events-table">
                 <thead>
@@ -108,6 +117,34 @@
             <button class="btn primary" id="refresh-users-btn">Refresh</button>
           </header>
           
+          <div class="glass-panel" style="margin-bottom: 2rem; padding: 1.5rem;">
+            <h3 style="margin-bottom: 1.5rem; font-size: 1.25rem;">Create New User</h3>
+            <form id="create-user-form" style="display: grid; grid-template-columns: 1fr 2fr 1fr auto auto; gap: 1.5rem; align-items: end;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label>PIN (Numeric ID)</label>
+                <input type="text" id="new-user-pin" required title="Unique arbitrary number between 1 and 65534" placeholder="1234">
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label>Card Number</label>
+                <div style="display: flex; gap: 0.5rem;">
+                  <input type="text" id="new-user-card" placeholder="Optional" style="flex: 1;">
+                  <button type="button" class="btn secondary" id="autofill-card-btn" title="Use Last Swiped Unassigned Card" style="white-space: nowrap; height: 100%;">Latest Swipe</button>
+                </div>
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label>Access Group</label>
+                <input type="text" id="new-user-group" value="0">
+              </div>
+               <div class="form-group" style="margin-bottom: 0; display: flex; flex-direction: column; align-items: center; padding-bottom: 0.75rem;">
+                <label>Admin</label>
+                <input type="checkbox" id="new-user-admin" style="width: auto; transform: scale(1.5); cursor: pointer;">
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <button type="submit" class="btn primary" style="background: var(--color-success); width: 100%; white-space: nowrap;">Create User</button>
+              </div>
+            </form>
+          </div>
+
           <div class="table-container glass-panel">
             <table id="users-table">
               <thead>
@@ -116,24 +153,14 @@
                   <th>Card ID</th>
                   <th>Group</th>
                   <th>Privileges</th>
+                  <th>Last Swiped</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="users-tbody">
                 <!-- Dynamic Content -->
               </tbody>
             </table>
-          </div>
-        </section>
-
-        <!-- Hardware View -->
-        <section id="hardware" class="view-section hidden">
-          <header class="view-header">
-            <h2>Hardware Topology</h2>
-            <button class="btn primary" id="refresh-hardware-btn">Refresh</button>
-          </header>
-          
-          <div class="stats-grid" id="hw-params-container">
-            <!-- Dynamic Content -->
           </div>
         </section>
       </main>

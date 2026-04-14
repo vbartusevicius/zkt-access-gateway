@@ -13,13 +13,15 @@ class MQTTManager:
         self.port = 1883
         self.device_id = "zkt_gateway"
         self.device_name = "ZKTeco Access Gateway"
+        self.on_command_callback = None
 
-    def connect(self, broker, port, user, password):
+    def connect(self, broker, port, user, password, on_command_callback=None):
         if not broker:
             return False
             
         self.broker = broker
         self.port = port
+        self.on_command_callback = on_command_callback
         self.client = mqtt_client.Client(mqtt_client.CallbackAPIVersion.VERSION2, "zkt_gateway_client")
 
         if user:
@@ -27,6 +29,7 @@ class MQTTManager:
             
         self.client.on_connect = self._on_connect
         self.client.on_disconnect = self._on_disconnect
+        self.client.on_message = self._on_message
 
         try:
             self.client.connect(broker, port)
@@ -48,6 +51,50 @@ class MQTTManager:
     def _on_disconnect(self, client, userdata, disconnect_flags, reason_code, properties):
         logger.info("Disconnected from MQTT Broker")
         self.connected = False
+
+    def _on_message(self, client, userdata, msg):
+        topic = msg.topic
+        payload = msg.payload.decode('utf-8')
+        if self.on_command_callback:
+            self.on_command_callback(topic, payload)
+
+    def publish_hardware_discovery(self, hw_dict):
+        if not self.connected:
+            return
+
+        device_info = {
+            "identifiers": [self.device_id],
+            "name": self.device_name,
+            "manufacturer": "ZKTeco",
+            "model": "Access Controller Gateway"
+        }
+        
+        # Subscribe to all internal command directives
+        self.client.subscribe(f"zkt/{self.device_id}/+/set")
+
+        # Discover all available physical relays as triggers (buttons)
+        relay_count = hw_dict.get("relay_count", 0)
+        for i in range(1, relay_count + 1):
+            config = {
+                "name": f"Trigger Relay {i}",
+                "unique_id": f"{self.device_id}_relay_{i}",
+                "command_topic": f"zkt/{self.device_id}/relay_{i}/set",
+                "payload_press": "TRIGGER",
+                "icon": "mdi:electric-switch",
+                "device": device_info
+            }
+            self.publish(f"homeassistant/button/{self.device_id}/relay_{i}/config", config, retain=True)
+
+        for action, name, icon in [("reboot", "Reboot Controller", "mdi:restart"), ("sync_time", "Sync Time", "mdi:clock-sync")]:
+            config = {
+                "name": name,
+                "unique_id": f"{self.device_id}_{action}",
+                "command_topic": f"zkt/{self.device_id}/{action}/set",
+                "payload_press": "TRIGGER",
+                "icon": icon,
+                "device": device_info
+            }
+            self.publish(f"homeassistant/button/{self.device_id}/{action}/config", config, retain=True)
 
     def _publish_ha_discovery(self):
         # Publish HA Discovery payloads

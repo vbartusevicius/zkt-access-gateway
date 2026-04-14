@@ -31,7 +31,12 @@ def dt_to_str(obj):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--connstr", required=True)
-    parser.add_argument("--action", required=True, choices=["status", "state_dump", "test"])
+    parser.add_argument("--action", required=True, choices=["status", "state_dump", "test", "create_user", "delete_user", "trigger_relay", "restart", "sync_time"])
+    parser.add_argument("--pin", type=str, default="")
+    parser.add_argument("--card", type=str, default="")
+    parser.add_argument("--group", type=str, default="1")
+    parser.add_argument("--admin", action="store_true")
+    parser.add_argument("--relay_id", type=int, default=1)
     args = parser.parse_args()
 
     try:
@@ -114,6 +119,40 @@ def main():
                     "events": transactions
                 }
                 print(json.dumps(data, cls=SafeJSONEncoder))
+
+            elif args.action == "create_user":
+                my_user = User(card=args.card, pin=args.pin, group=args.group, super_authorize=args.admin)
+                zk.table(User).upsert(my_user)
+                print(json.dumps({"success": True}))
+
+            elif args.action == "delete_user":
+                # Find the target user and pass their record into the delete method
+                target_users = [u for u in zk.table(User).where(pin=str(args.pin))]
+                if not target_users:
+                    # Also try integer just in case SDK types differ
+                    target_users = [u for u in zk.table(User).where(pin=args.pin)]
+                    
+                if target_users:
+                    zk.table(User).delete(target_users)
+                print(json.dumps({"success": True}))
+
+            elif args.action == "trigger_relay":
+                # Fallback zero-index mappings
+                target_relay = args.relay_id - 1
+                if target_relay < len(zk.relays):
+                    # We use default switch_on value (5 seconds)
+                    zk.relays[target_relay].switch_on(5)
+                    print(json.dumps({"success": True}))
+                else:
+                    print(json.dumps({"success": False, "error": f"Relay {args.relay_id} out of bounds"}))
+
+            elif args.action == "restart":
+                zk.restart()
+                print(json.dumps({"success": True}))
+
+            elif args.action == "sync_time":
+                zk.parameters.datetime = datetime.now()
+                print(json.dumps({"success": True}))
 
     except Exception as e:
         print(json.dumps({"success": False, "error": str(e)}, cls=SafeJSONEncoder))

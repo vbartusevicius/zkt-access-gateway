@@ -40,6 +40,9 @@ def sync_job():
         save_users(res.get("users", []))
         save_hardware(hw, res.get("doors", []))
         
+        # Publish deep HA integration structure
+        mqtt.publish_hardware_discovery(hw)
+        
         events = res.get("events", [])
         if events:
             save_events(events)
@@ -60,6 +63,23 @@ def sync_job():
 
 scheduler = BackgroundScheduler()
 
+def handle_mqtt_command(topic: str, payload: str):
+    logger.info(f"Received MQTT command via {topic}")
+    connstr = os.environ.get("ZKT_CONNSTR")
+    if not connstr:
+        return
+        
+    try:
+        if topic.endswith("/reboot/set"):
+            run_zk_command(connstr, "restart")
+        elif topic.endswith("/sync_time/set"):
+            run_zk_command(connstr, "sync_time")
+        elif "/relay_" in topic and topic.endswith("/set"):
+            relay_id = int(topic.split("/relay_")[1].split("/")[0])
+            run_zk_command(connstr, "trigger_relay", relay_id=relay_id)
+    except Exception as e:
+        logger.error(f"Failed to handle incoming MQTT command: {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -72,7 +92,7 @@ async def lifespan(app: FastAPI):
         port = int(os.environ.get("MQTT_PORT", 1883))
         user = os.environ.get("MQTT_USER")
         password = os.environ.get("MQTT_PASSWORD")
-        mqtt.connect(broker, port, user, password)
+        mqtt.connect(broker, port, user, password, on_command_callback=handle_mqtt_command)
 
     # Start scheduler with an immediate first run
     from datetime import datetime
@@ -124,6 +144,69 @@ def get_all_settings():
 @app.post("/api/settings")
 def update_settings(payload: dict = Body(...)):
     return {"success": False, "error": "Settings are now statically managed via environment variables (docker-compose.yml)"}
+
+@app.post("/api/users")
+def create_user(payload: dict = Body(...)):
+    connstr = os.environ.get("ZKT_CONNSTR")
+    if not connstr:
+        return {"success": False, "detail": "Missing connection string"}
+        
+    res = run_zk_command(connstr, "create_user", 
+                         pin=payload.get("pin", ""),
+                         card=payload.get("card", ""),
+                         group=payload.get("group", "1"),
+                         admin=bool(payload.get("super_authorize", False)))
+    
+    if res and res.get("success"):
+        # Kick off a fast background sync to immediately update local SQLite DB
+        scheduler.add_job(sync_job)
+        return {"success": True}
+    return {"success": False, "detail": res.get("error", "Unknown error")}
+
+@app.delete("/api/users/{pin}")
+def delete_user(pin: str):
+    connstr = os.environ.get("ZKT_CONNSTR")
+    if not connstr:
+        return {"success": False, "detail": "Missing connection string"}
+        
+    res = run_zk_command(connstr, "delete_user", pin=pin)
+    if res and res.get("success"):
+        scheduler.add_job(sync_job)
+        return {"success": True}
+    return {"success": False, "detail": res.get("error", "Unknown error")}
+
+@app.post("/api/relays/{relay_id}/trigger")
+def trigger_relay(relay_id: int):
+    connstr = os.environ.get("ZKT_CONNSTR")
+    if not connstr:
+        return {"success": False, "detail": "Missing connection string"}
+        
+    res = run_zk_command(connstr, "trigger_relay", relay_id=relay_id)
+    if res and res.get("success"):
+        return {"success": True}
+    return {"success": False, "detail": res.get("error", "Unknown error")}
+
+@app.post("/api/device/sync-time")
+def sync_device_time():
+    connstr = os.environ.get("ZKT_CONNSTR")
+    if not connstr:
+        return {"success": False, "detail": "Missing connection string"}
+        
+    res = run_zk_command(connstr, "sync_time")
+    if res and res.get("success"):
+        return {"success": True}
+    return {"success": False, "detail": res.get("error", "Unknown error")}
+
+@app.post("/api/device/reboot")
+def reboot_device():
+    connstr = os.environ.get("ZKT_CONNSTR")
+    if not connstr:
+        return {"success": False, "detail": "Missing connection string"}
+        
+    res = run_zk_command(connstr, "restart")
+    if res and res.get("success"):
+        return {"success": True}
+    return {"success": False, "detail": res.get("error", "Unknown error")}
 
 @app.post("/api/test_connection")
 def test_connection(payload: dict = Body(...)):
