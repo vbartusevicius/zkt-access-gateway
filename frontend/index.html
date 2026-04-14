@@ -27,9 +27,13 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M12 5l7 7-7 7"></path></svg>
             Doors & Events
           </button>
-          <button class="nav-item" data-target="settings">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-            Settings
+          <button class="nav-item" data-target="users">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+            Users & Keys
+          </button>
+          <button class="nav-item" data-target="hardware">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+            Hardware Overview
           </button>
         </nav>
       </aside>
@@ -97,44 +101,39 @@
           </div>
         </section>
 
-        <!-- Settings View -->
-        <section id="settings" class="view-section hidden">
+        <!-- Users View -->
+        <section id="users" class="view-section hidden">
           <header class="view-header">
-            <h2>Configuration</h2>
-            <button class="btn primary" id="save-settings-btn">Save Rules</button>
+            <h2>Authorized Personnel</h2>
+            <button class="btn primary" id="refresh-users-btn">Refresh</button>
           </header>
+          
+          <div class="table-container glass-panel">
+            <table id="users-table">
+              <thead>
+                <tr>
+                  <th>PIN</th>
+                  <th>Card ID</th>
+                  <th>Group</th>
+                  <th>Privileges</th>
+                </tr>
+              </thead>
+              <tbody id="users-tbody">
+                <!-- Dynamic Content -->
+              </tbody>
+            </table>
+          </div>
+        </section>
 
-          <div class="settings-grid">
-            <div class="settings-card glass-panel">
-              <h3>ZKTeco Connection String</h3>
-              <p class="helper-text">Enter the full connection string or use IP address.</p>
-              <div class="form-group">
-                <label>Connection String</label>
-                <input type="text" id="setting-zkt-connstr" placeholder="protocol=TCP,ipaddress=192.168.1.201,port=4370,timeout=4000,passwd=">
-              </div>
-              <button class="btn secondary" id="test-conn-btn">Test Connection</button>
-              <div id="test-conn-result" class="test-result"></div>
-            </div>
-
-            <div class="settings-card glass-panel">
-              <h3>MQTT / Home Assistant</h3>
-              <div class="form-group">
-                <label>Broker Address</label>
-                <input type="text" id="setting-mqtt-broker" placeholder="192.168.1.100">
-              </div>
-              <div class="form-group">
-                <label>Port</label>
-                <input type="number" id="setting-mqtt-port" placeholder="1883">
-              </div>
-              <div class="form-group">
-                <label>Username (Optional)</label>
-                <input type="text" id="setting-mqtt-user">
-              </div>
-              <div class="form-group">
-                <label>Password (Optional)</label>
-                <input type="password" id="setting-mqtt-password">
-              </div>
-            </div>
+        <!-- Hardware View -->
+        <section id="hardware" class="view-section hidden">
+          <header class="view-header">
+            <h2>Hardware Topology</h2>
+            <button class="btn primary" id="refresh-hardware-btn">Refresh</button>
+          </header>
+          
+          <div class="stats-grid" id="hw-params-container">
+            <!-- Dynamic Content -->
           </div>
         </section>
       </main>

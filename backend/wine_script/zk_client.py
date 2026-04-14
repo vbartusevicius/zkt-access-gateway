@@ -11,6 +11,18 @@ except ImportError:
     print(json.dumps({"success": False, "error": "pyzkaccess not installed or not running under Wine"}))
     sys.exit(1)
 
+# Robust JSON Encoder for ctypes, enums, etc.
+class SafeJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        try:
+            return super().default(obj)
+        except TypeError:
+            if hasattr(obj, 'value'):
+                return obj.value
+            if hasattr(obj, '__int__'):
+                return int(obj)
+            return str(obj)
+
 def dt_to_str(obj):
     if isinstance(obj, datetime):
         return obj.isoformat()
@@ -19,7 +31,7 @@ def dt_to_str(obj):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--connstr", required=True)
-    parser.add_argument("--action", required=True, choices=["status", "events", "test"])
+    parser.add_argument("--action", required=True, choices=["status", "state_dump", "test"])
     args = parser.parse_args()
 
     try:
@@ -39,24 +51,72 @@ def main():
                     "serial_number": zk.parameters.serial_number,
                     "users_count": users_count
                 }
-                print(json.dumps(data))
+                print(json.dumps(data, cls=SafeJSONEncoder))
             
-            elif args.action == "events":
-                # Get recent events from device RAM via SDK API
-                events = zk.events.refresh()
-                ev_data = []
-                for ev in events:
-                    ev_data.append({
-                        "timestamp": dt_to_str(ev.time),
-                        "door_id": ev.door,
-                        "card_id": ev.card,
-                        "event_type": ev.event_type
-                    })
+            elif args.action == "state_dump":
+                # Pull Parameters & Hardware
+                hw = {
+                    "ip": zk.parameters.ip_address,
+                    "serial_number": zk.parameters.serial_number,
+                    "door_count": len(zk.doors),
+                    "relay_count": len(zk.relays),
+                    "reader_count": len(zk.readers),
+                    "aux_input_count": len(zk.aux_inputs)
+                }
                 
-                print(json.dumps({"success": True, "events": ev_data}))
+                # Pull Doors specific parameters safely
+                doors_data = []
+                for i, door in enumerate(zk.doors):
+                    try:
+                        v_mode = str(door.parameters.verify_mode.name) if hasattr(door.parameters.verify_mode, 'name') else str(door.parameters.verify_mode)
+                    except ValueError as ve:
+                        # Sometimes devices return unsupported Enum integer values like "7"
+                        v_mode = f"Custom/Unsupported ({str(ve).split(' ')[0]})"
+                    except Exception:
+                        v_mode = "Unknown"
+                        
+                    doors_data.append({
+                        "door_id": i + 1,
+                        "verify_mode": v_mode
+                    })
+
+                # Pull Users
+                try:
+                    users_qs = zk.table('User')
+                    users = []
+                    for u in users_qs:
+                        users.append(u.dict)
+                except Exception as e:
+                    users = [{"error": str(e)}]
+                
+                # Pull Unread Transactions (replaces volatile events API)
+                try:
+                    tx_qs = zk.table('Transaction').unread()
+                    # It's safer to just fetch all historically unread transactions and let the backend deduplicate
+                    transactions = []
+                    for tx in tx_qs:
+                        transactions.append({
+                            "timestamp": dt_to_str(tx.time),
+                            "door_id": tx.door,
+                            "card_id": tx.card,
+                            "pin": tx.pin,
+                            "event_type": tx.event_type
+                        })
+                except Exception as e:
+                    transactions = []
+
+                # Return mega JSON blob
+                data = {
+                    "success": True,
+                    "hardware": hw,
+                    "doors": doors_data,
+                    "users": users,
+                    "events": transactions
+                }
+                print(json.dumps(data, cls=SafeJSONEncoder))
 
     except Exception as e:
-        print(json.dumps({"success": False, "error": str(e)}))
+        print(json.dumps({"success": False, "error": str(e)}, cls=SafeJSONEncoder))
         sys.exit(1)
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@ def run_zk_command(connstr: str, action: str) -> dict:
         )
         
         if result.returncode != 0:
+            print(f"[BRIDGE] Wine process exited with {result.returncode}. Stdout: {result.stdout.strip()} | Stderr: {result.stderr.strip()}", flush=True)
             # Check if there is valid JSON in stdout despite error
             try:
                 return json.loads(result.stdout)
@@ -28,6 +29,7 @@ def run_zk_command(connstr: str, action: str) -> dict:
                 return {"success": False, "error": f"Wine process error: {result.stderr.strip()}"}
                 
         # Parse the JSON response
+        print(f"[BRIDGE] Raw Output from {action}:\n{result.stdout.strip()}", flush=True)
         try:
             return json.loads(result.stdout)
         except json.JSONDecodeError:

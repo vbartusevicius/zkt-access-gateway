@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from backend.database import init_db, get_setting, set_setting, save_events, get_latest_events
+from backend.database import init_db, save_events, get_latest_events
 from backend.bridge_manager import run_zk_command
 from backend.mqtt_manager import mqtt
 
@@ -22,32 +22,29 @@ app_state = {
 }
 
 def sync_job():
-    """Periodic job pulling events and status."""
-    connstr = get_setting("zkt_connstr") or os.environ.get("ZKT_CONNSTR")
+    """Periodic job pulling full state dump."""
+    connstr = os.environ.get("ZKT_CONNSTR")
     if not connstr:
         return
         
-    # Poll status
-    status_res = run_zk_command(connstr, "status")
-    if status_res and status_res.get("success"):
+    res = run_zk_command(connstr, "state_dump")
+    if res and res.get("success"):
         app_state["zk_connected"] = True
-        app_state["zk_ip"] = status_res.get("ip", "")
-        app_state["zk_sn"] = status_res.get("serial_number", "")
-        app_state["users_count"] = status_res.get("users_count", 0)
-        mqtt.publish_status(True, app_state["zk_ip"])
-    else:
-        app_state["zk_connected"] = False
-        mqtt.publish_status(False)
-        return
-
-    # Poll events
-    events_res = run_zk_command(connstr, "events")
-    if events_res and events_res.get("success"):
-        events = events_res.get("events", [])
+        hw = res.get("hardware", {})
+        app_state["zk_ip"] = hw.get("ip", "")
+        app_state["zk_sn"] = hw.get("serial_number", "")
+        app_state["users_count"] = len(res.get("users", []))
+        
+        # Save payload
+        from backend.database import save_users, save_hardware
+        save_users(res.get("users", []))
+        save_hardware(hw, res.get("doors", []))
+        
+        events = res.get("events", [])
         if events:
-            # Check newly arrived events (assuming db deduplicates them)
             save_events(events)
-            # Publish newest event to HA
+            # Find the actual newest event locally after merge to accurately publish
+            # Or just publish the last one from the fetched list
             latest = events[-1]
             mqtt.publish_event(
                 latest["timestamp"],
@@ -55,6 +52,11 @@ def sync_job():
                 latest["card_id"],
                 latest["event_type"]
             )
+            
+        mqtt.publish_status(True, app_state["zk_ip"])
+    else:
+        app_state["zk_connected"] = False
+        mqtt.publish_status(False)
 
 scheduler = BackgroundScheduler()
 
@@ -65,11 +67,11 @@ async def lifespan(app: FastAPI):
     init_db()
 
     # Init MQTT
-    broker = get_setting("mqtt_broker") or os.environ.get("MQTT_BROKER")
+    broker = os.environ.get("MQTT_BROKER")
     if broker:
-        port = int(get_setting("mqtt_port") or os.environ.get("MQTT_PORT", 1883))
-        user = get_setting("mqtt_user") or os.environ.get("MQTT_USER")
-        password = get_setting("mqtt_password") or os.environ.get("MQTT_PASSWORD")
+        port = int(os.environ.get("MQTT_PORT", 1883))
+        user = os.environ.get("MQTT_USER")
+        password = os.environ.get("MQTT_PASSWORD")
         mqtt.connect(broker, port, user, password)
 
     # Start scheduler with an immediate first run
@@ -98,30 +100,30 @@ def get_status():
 def get_events():
     return {"events": get_latest_events(50)}
 
+@app.get("/api/users")
+def get_users_api():
+    from backend.database import get_users
+    return {"users": get_users()}
+
+@app.get("/api/hardware")
+def get_hardware_api():
+    from backend.database import get_hardware
+    return get_hardware()
+
 @app.get("/api/settings")
 def get_all_settings():
+    pw = os.environ.get("MQTT_PASSWORD", "")
     return {
-        "zkt_connstr": get_setting("zkt_connstr") or os.environ.get("ZKT_CONNSTR", ""),
-        "mqtt_broker": get_setting("mqtt_broker") or os.environ.get("MQTT_BROKER", ""),
-        "mqtt_port": get_setting("mqtt_port") or os.environ.get("MQTT_PORT", "1883"),
-        "mqtt_user": get_setting("mqtt_user") or os.environ.get("MQTT_USER", ""),
-        "mqtt_password": get_setting("mqtt_password") or os.environ.get("MQTT_PASSWORD", "")
+        "zkt_connstr": os.environ.get("ZKT_CONNSTR", ""),
+        "mqtt_broker": os.environ.get("MQTT_BROKER", ""),
+        "mqtt_port": os.environ.get("MQTT_PORT", "1883"),
+        "mqtt_user": os.environ.get("MQTT_USER", ""),
+        "mqtt_password": "*" * len(pw) if pw else ""
     }
 
 @app.post("/api/settings")
 def update_settings(payload: dict = Body(...)):
-    for key, value in payload.items():
-        set_setting(key, value)
-        
-    # Reinit MQTT if changed
-    if "mqtt_broker" in payload:
-        mqtt.connect(
-            payload.get("mqtt_broker"),
-            int(payload.get("mqtt_port", 1883)),
-            payload.get("mqtt_user"),
-            payload.get("mqtt_password")
-        )
-    return {"success": True}
+    return {"success": False, "error": "Settings are now statically managed via environment variables (docker-compose.yml)"}
 
 @app.post("/api/test_connection")
 def test_connection(payload: dict = Body(...)):

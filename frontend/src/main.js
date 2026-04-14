@@ -39,6 +39,8 @@ class AppNavigation {
     // Trigger section-specific refreshes
     if (targetId === 'dashboard') appState.fetchStatus();
     if (targetId === 'doors') appState.fetchEvents();
+    if (targetId === 'users') appState.fetchUsers();
+    if (targetId === 'hardware') appState.fetchHardware();
   }
 }
 
@@ -50,17 +52,23 @@ class AppState {
   }
 
   init() {
-    this.fetchSettings();
     this.fetchStatus();
     this.fetchEvents();
+    this.fetchUsers();
+    this.fetchHardware();
 
     // Setup periodic refresh
-    this.statusInterval = setInterval(() => this.fetchStatus(), 10000);
+    this.statusInterval = setInterval(() => {
+        this.fetchStatus();
+        this.fetchEvents();
+        this.fetchUsers();
+        this.fetchHardware();
+    }, 15000);
 
     // Bind event listeners
-    document.getElementById('save-settings-btn').addEventListener('click', () => this.saveSettings());
-    document.getElementById('test-conn-btn').addEventListener('click', () => this.testConnection());
     document.getElementById('refresh-doors-btn').addEventListener('click', () => this.fetchEvents());
+    document.getElementById('refresh-users-btn').addEventListener('click', () => this.fetchUsers());
+    document.getElementById('refresh-hardware-btn').addEventListener('click', () => this.fetchHardware());
   }
 
   async fetchStatus() {
@@ -128,73 +136,79 @@ class AppState {
     return types[type] || `Code: ${type}`;
   }
 
-  async fetchSettings() {
+  async fetchUsers() {
     try {
-      const res = await fetch(`${API_BASE}/settings`);
+      const res = await fetch(`${API_BASE}/users`);
       const data = await res.json();
       
-      document.getElementById('setting-zkt-connstr').value = data.zkt_connstr || '';
-      document.getElementById('setting-mqtt-broker').value = data.mqtt_broker || '';
-      document.getElementById('setting-mqtt-port').value = data.mqtt_port || '1883';
-      document.getElementById('setting-mqtt-user').value = data.mqtt_user || '';
-      document.getElementById('setting-mqtt-password').value = data.mqtt_password || '';
+      const tbody = document.getElementById('users-tbody');
+      tbody.innerHTML = '';
+      
+      if (!data.users || data.users.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color: var(--text-secondary);">No assigned users</td></tr>';
+        return;
+      }
+
+      data.users.forEach(u => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${u.pin}</td>
+          <td>${u.card || 'No Card'}</td>
+          <td>${u.group_id || 'Default'}</td>
+          <td>${u.super_authorize ? '<span style="color:var(--color-primary)">Admin</span>' : 'Standard'}</td>
+        `;
+        tbody.appendChild(tr);
+      });
       
     } catch (e) {
       console.error(e);
     }
   }
 
-  async saveSettings() {
-    const payload = {
-      zkt_connstr: document.getElementById('setting-zkt-connstr').value,
-      mqtt_broker: document.getElementById('setting-mqtt-broker').value,
-      mqtt_port: parseInt(document.getElementById('setting-mqtt-port').value) || 1883,
-      mqtt_user: document.getElementById('setting-mqtt-user').value,
-      mqtt_password: document.getElementById('setting-mqtt-password').value
-    };
-
+  async fetchHardware() {
     try {
-      const res = await fetch(`${API_BASE}/settings`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      
-      if (res.ok) {
-        showToast('Settings saved successfully', 'success');
-        this.fetchStatus(); // Refresh status after saving
-      } else {
-        showToast('Failed to save settings', 'error');
-      }
-    } catch (e) {
-      showToast('API Communication Error', 'error');
-    }
-  }
-
-  async testConnection() {
-    const connstr = document.getElementById('setting-zkt-connstr').value;
-    const btn = document.getElementById('test-conn-btn');
-    btn.textContent = 'Testing...';
-    btn.disabled = true;
-
-    try {
-      const res = await fetch(`${API_BASE}/test_connection`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ zkt_connstr: connstr })
-      });
-      
+      const res = await fetch(`${API_BASE}/hardware`);
       const data = await res.json();
-      if (data.success) {
-        showToast('Connection to controller successful', 'success');
-      } else {
-        showToast('Connection failed: ' + data.detail, 'error');
+      
+      const container = document.getElementById('hw-params-container');
+      container.innerHTML = '';
+      
+      if (!data.hw || !data.hw.ip) {
+        container.innerHTML = '<p style="color: var(--text-secondary);">Controller is completely offline or not synced yet.</p>';
+        return;
       }
+
+      // Base Device Info
+      container.innerHTML += `
+        <div class="stat-card glass-panel">
+          <h3>Hardware Info</h3>
+          <p class="stat-value" style="font-size:1.25rem;">ZKTeco Access Device</p>
+          <div style="margin-top:1rem;font-size:0.875rem;color:var(--text-secondary);">
+             IP: ${data.hw.ip}<br>
+             SN: ${data.hw.serial_number}<br>
+             Doors: ${data.hw.door_count}<br>
+             Readers: ${data.hw.reader_count}<br>
+             Relays/Locks: ${data.hw.relay_count}<br>
+             Aux Inputs: ${data.hw.aux_input_count}
+          </div>
+        </div>
+      `;
+
+      // Render Each Door separately
+      (data.doors || []).forEach(door => {
+        container.innerHTML += `
+          <div class="stat-card glass-panel" style="border-left: 4px solid var(--color-accent)">
+            <h3>Door ${door.door_id} Node</h3>
+            <p class="stat-value" style="font-size:1.25rem;">Operational</p>
+            <div style="margin-top:1rem;font-size:0.875rem;color:var(--text-secondary);">
+               Verify Mode Configured: ${door.verify_mode}
+            </div>
+          </div>
+        `;
+      });
+      
     } catch (e) {
-      showToast('Error testing connection', 'error');
-    } finally {
-      btn.textContent = 'Test Connection';
-      btn.disabled = false;
+      console.error(e);
     }
   }
 }
