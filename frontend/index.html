@@ -11,14 +11,14 @@
     <link rel="stylesheet" href="/src/style.css">
   </head>
   <body class="dark-theme">
-    <div class="app-container">
+    <div class="flex min-h-screen">
       <!-- Sidebar -->
-      <aside class="sidebar glass-panel">
-        <div class="logo">
-          <div class="logo-icon"></div>
-          <h1>ZKAccess Gateway</h1>
+      <aside class="w-[280px] py-8 px-6 flex flex-col gap-10 border-r border-panel-border bg-panel-bg backdrop-blur-md rounded-none shadow-soft">
+        <div class="flex items-center gap-4">
+          <div class="w-8 h-8 rounded-lg shadow-glow bg-gradient-to-br from-primary to-accent"></div>
+          <h1 class="text-xl font-semibold tracking-tight">ZKAccess Gateway</h1>
         </div>
-        <nav class="nav-menu">
+        <nav class="flex flex-col gap-2">
           <button class="nav-item active" data-target="dashboard">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
             Dashboard
@@ -35,49 +35,52 @@
       </aside>
 
       <!-- Main Content -->
-      <main class="main-content">
+      <main class="flex-1 p-10 overflow-y-auto">
         <!-- Dashboard View -->
         <section id="dashboard" class="view-section active">
-          <header class="view-header">
-            <h2>System Overview</h2>
-            <div style="display:flex; gap:10px; align-items: center;">
+          <header class="flex justify-between items-center mb-8">
+            <h2 class="text-3xl font-semibold tracking-tight">System Overview</h2>
+            <div class="flex gap-3 items-center">
               <button class="btn primary" id="sync-time-btn">Sync Time</button>
-              <button class="btn primary" style="background:var(--color-danger);" id="reboot-btn">Reboot Device</button>
+              <button class="btn !bg-danger text-white shadow-[0_4px_14px_0_rgba(239,68,68,0.39)] hover:-translate-y-[1px] hover:shadow-[0_6px_20px_rgba(239,68,68,0.35)]" id="reboot-btn">Reboot Device</button>
             </div>
           </header>
           
-          <div class="stats-grid">
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
             <div class="stat-card glass-panel interactive">
-              <h3>Controller Status</h3>
-              <div class="status-badge connected" id="controller-status" style="width: max-content; padding: 0.5rem 1rem; margin-top: 0.5rem;">
-                <span class="pulse-dot"></span>
-                <span class="status-text">Connected</span>
+              <h3 class="text-sm font-medium text-text-secondary mb-2">Controller Status</h3>
+              <div class="flex items-center gap-3 px-4 py-2 mt-2 w-max rounded-full text-sm font-medium bg-success-bg text-success border border-success/20" id="controller-status">
+                <span class="relative flex h-3 w-3">
+                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-3 w-3 bg-success"></span>
+                </span>
+                <span class="status-text tracking-wide">Connected</span>
               </div>
             </div>
             <div class="stat-card glass-panel interactive">
-              <h3>Device IP</h3>
-              <p class="stat-value" id="stat-ip">--</p>
+              <h3 class="text-sm font-medium text-text-secondary mb-2">Device IP</h3>
+              <p class="text-3xl font-semibold stat-value" id="stat-ip">--</p>
             </div>
             <div class="stat-card glass-panel interactive">
-              <h3>Serial Number</h3>
-              <p class="stat-value" id="stat-sn">--</p>
+              <h3 class="text-sm font-medium text-text-secondary mb-2">Serial Number</h3>
+              <p class="text-3xl font-semibold stat-value" id="stat-sn">--</p>
             </div>
             <div class="stat-card glass-panel interactive">
-              <h3>Total Users</h3>
-              <p class="stat-value" id="stat-users">--</p>
+              <h3 class="text-sm font-medium text-text-secondary mb-2">Total Users</h3>
+              <p class="text-3xl font-semibold stat-value" id="stat-users">--</p>
             </div>
             <div class="stat-card glass-panel interactive">
-              <h3>MQTT Status</h3>
-              <p class="stat-value" id="stat-mqtt">--</p>
+              <h3 class="text-sm font-medium text-text-secondary mb-2">MQTT Status</h3>
+              <p class="text-3xl font-semibold stat-value" id="stat-mqtt">--</p>
             </div>
           </div>
           
-          <div style="margin-top: 2rem;">
-            <header class="view-header">
-                <h2>Hardware Topology</h2>
+          <div class="mt-8">
+            <header class="flex justify-between items-center mb-8">
+                <h2 class="text-3xl font-semibold tracking-tight">Hardware Topology</h2>
                 <button class="btn primary" id="refresh-hardware-btn">Refresh</button>
             </header>
-            <div class="stats-grid" id="hw-params-container">
+            <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6" id="hw-params-container">
                 <!-- Dynamic Content -->
             </div>
           </div>
@@ -85,15 +88,15 @@
 
         <!-- Events Log -->
         <section id="doors" class="view-section hidden">
-          <header class="view-header">
-            <h2>Activity Logs</h2>
+          <header class="flex justify-between items-center mb-8">
+            <h2 class="text-3xl font-semibold tracking-tight">Activity Logs</h2>
             <button class="btn primary" id="refresh-doors-btn">Refresh</button>
           </header>
 
-          <div class="events-log glass-panel" style="padding: 1.5rem;">
-            <h3 style="margin-bottom: 1.5rem;">Recent Events</h3>
-            <div class="table-container">
-              <table id="events-table">
+          <div class="glass-panel p-6">
+            <h3 class="text-xl font-semibold mb-6">Recent Events</h3>
+            <div class="w-full overflow-x-auto">
+              <table id="events-table" class="w-full border-collapse">
                 <thead>
                   <tr>
                     <th>Time</th>
@@ -112,41 +115,41 @@
 
         <!-- Users View -->
         <section id="users" class="view-section hidden">
-          <header class="view-header">
-            <h2>Authorized Personnel</h2>
+          <header class="flex justify-between items-center mb-8">
+            <h2 class="text-3xl font-semibold tracking-tight">Authorized Personnel</h2>
             <button class="btn primary" id="refresh-users-btn">Refresh</button>
           </header>
           
-          <div class="glass-panel" style="margin-bottom: 2rem; padding: 1.5rem;">
-            <h3 style="margin-bottom: 1.5rem; font-size: 1.25rem;">Create New User</h3>
-            <form id="create-user-form" style="display: grid; grid-template-columns: 1fr 2fr 1fr auto auto; gap: 1.5rem; align-items: end;">
-              <div class="form-group" style="margin-bottom: 0;">
+          <div class="glass-panel mb-8 p-6">
+            <h3 class="mb-6 text-xl font-semibold">Create New User</h3>
+            <form id="create-user-form" class="grid grid-cols-1 md:grid-cols-[1fr_2fr_1fr_auto_auto] gap-6 items-end">
+              <div class="form-group mb-0">
                 <label>PIN (Numeric ID)</label>
                 <input type="text" id="new-user-pin" required title="Unique arbitrary number between 1 and 65534" placeholder="1234">
               </div>
-              <div class="form-group" style="margin-bottom: 0;">
+              <div class="form-group mb-0">
                 <label>Card Number</label>
-                <div style="display: flex; gap: 0.5rem;">
-                  <input type="text" id="new-user-card" placeholder="Optional" style="flex: 1;">
-                  <button type="button" class="btn secondary" id="autofill-card-btn" title="Use Last Swiped Unassigned Card" style="white-space: nowrap; height: 100%;">Latest Swipe</button>
+                <div class="flex gap-2 h-[50px]">
+                  <input type="text" class="flex-1 h-full" id="new-user-card" placeholder="Optional">
+                  <button type="button" class="btn secondary whitespace-nowrap h-full" id="autofill-card-btn" title="Use Last Swiped Unassigned Card">Latest Swipe</button>
                 </div>
               </div>
-              <div class="form-group" style="margin-bottom: 0;">
+              <div class="form-group mb-0">
                 <label>Access Group</label>
                 <input type="text" id="new-user-group" value="0">
               </div>
-               <div class="form-group" style="margin-bottom: 0; display: flex; flex-direction: column; align-items: center; padding-bottom: 0.75rem;">
+               <div class="form-group mb-0 flex flex-col items-center pb-3">
                 <label>Admin</label>
-                <input type="checkbox" id="new-user-admin" style="width: auto; transform: scale(1.5); cursor: pointer;">
+                <input type="checkbox" id="new-user-admin" class="w-auto">
               </div>
-              <div class="form-group" style="margin-bottom: 0;">
-                <button type="submit" class="btn primary" style="background: var(--color-success); width: 100%; white-space: nowrap;">Create User</button>
+              <div class="form-group mb-0">
+                <button type="submit" class="btn text-white bg-success shadow-[0_4px_14px_0_rgba(16,185,129,0.39)] hover:bg-emerald-600 hover:-translate-y-[1px] hover:shadow-[0_6px_20px_rgba(16,185,129,0.35)] w-full whitespace-nowrap">Create User</button>
               </div>
             </form>
           </div>
 
-          <div class="table-container glass-panel">
-            <table id="users-table">
+          <div class="w-full overflow-x-auto glass-panel">
+            <table id="users-table" class="w-full border-collapse">
               <thead>
                 <tr>
                   <th>PIN</th>
@@ -167,7 +170,7 @@
     </div>
 
     <!-- Toast Notifications -->
-    <div id="toast-container" class="toast-container"></div>
+    <div id="toast-container" class="fixed bottom-8 right-8 flex flex-col gap-2 z-[100]"></div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

@@ -110,14 +110,25 @@ class AppState {
       const badge = document.getElementById('controller-status');
       
       if (data.connected) {
-        badge.className = 'status-badge connected';
-        badge.querySelector('.status-text').textContent = 'Connected';
+        badge.className = 'flex items-center gap-3 px-4 py-2 mt-2 w-max rounded-full text-sm font-medium bg-success-bg text-success border border-success/20';
+        badge.innerHTML = `
+          <span class="relative flex h-3 w-3">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-3 w-3 bg-success"></span>
+          </span>
+          <span class="status-text tracking-wide">Connected</span>
+        `;
         document.getElementById('stat-ip').textContent = data.ip || 'Unknown';
         document.getElementById('stat-sn').textContent = data.serial_number || 'Unknown';
         document.getElementById('stat-users').textContent = data.users_count || '0';
       } else {
-        badge.className = 'status-badge';
-        badge.querySelector('.status-text').textContent = 'Offline';
+        badge.className = 'flex items-center gap-3 px-4 py-2 mt-2 w-max rounded-full text-sm font-medium bg-white/5 text-text-secondary border border-panel-border';
+        badge.innerHTML = `
+          <span class="relative flex h-3 w-3">
+            <span class="relative inline-flex rounded-full h-3 w-3 bg-text-secondary"></span>
+          </span>
+          <span class="status-text tracking-wide">Offline</span>
+        `;
         document.getElementById('stat-ip').textContent = '--';
         document.getElementById('stat-sn').textContent = '--';
       }
@@ -138,7 +149,7 @@ class AppState {
       tbody.innerHTML = '';
       
       if (!data.events || data.events.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color: var(--text-secondary);">No recent events</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-text-secondary">No recent events</td></tr>';
         return;
       }
 
@@ -176,7 +187,7 @@ class AppState {
       tbody.innerHTML = '';
       
       if (!data.users || data.users.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: var(--text-secondary);">No assigned users</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-text-secondary">No assigned users</td></tr>';
         return;
       }
 
@@ -186,10 +197,10 @@ class AppState {
           <td>${u.pin}</td>
           <td>${u.card || 'No Card'}</td>
           <td>${u.group_id || 'Default'}</td>
-          <td>${u.super_authorize ? '<span style="color:var(--color-primary)">Admin</span>' : 'Standard'}</td>
-          <td>${u.last_used ? new Date(u.last_used).toLocaleString() : '<span style="color:var(--text-secondary)">Never</span>'}</td>
+          <td>${u.super_authorize ? '<span class="text-primary font-medium">Admin</span>' : 'Standard'}</td>
+          <td>${u.last_used ? new Date(u.last_used).toLocaleString() : '<span class="text-text-secondary italic">Never</span>'}</td>
           <td>
-            <button class="btn primary delete-user-btn" data-pin="${u.pin}" style="background:var(--color-danger); padding:0.25rem 0.5rem; font-size:0.75rem;">Delete</button>
+            <button class="btn delete-user-btn bg-danger text-white hover:bg-red-600 px-3 py-1.5 text-xs shadow-soft" data-pin="${u.pin}">Delete</button>
           </td>
         `;
         tbody.appendChild(tr);
@@ -278,16 +289,16 @@ class AppState {
       container.innerHTML = '';
       
       if (!data.hw || !data.hw.ip) {
-        container.innerHTML = '<p style="color: var(--text-secondary);">Controller is completely offline or not synced yet.</p>';
+        container.innerHTML = '<p class="text-text-secondary col-span-full">Controller is completely offline or not synced yet.</p>';
         return;
       }
 
       // Base Device Info
       container.innerHTML += `
-        <div class="stat-card glass-panel">
-          <h3>Hardware Info</h3>
-          <p class="stat-value" style="font-size:1.25rem;">ZKTeco Access Device</p>
-          <div style="margin-top:1rem;font-size:0.875rem;color:var(--text-secondary);">
+        <div class="stat-card glass-panel interactive border-l-4 border-l-success">
+          <h3 class="text-sm font-medium text-text-secondary mb-1">Hardware Info</h3>
+          <p class="stat-value text-xl font-semibold">ZKTeco Access Device</p>
+          <div class="mt-4 text-sm text-text-secondary leading-relaxed">
              IP: ${data.hw.ip}<br>
              SN: ${data.hw.serial_number}<br>
              Doors: ${data.hw.door_count}<br>
@@ -302,18 +313,20 @@ class AppState {
       (data.doors || []).forEach(door => {
         const isDisabled = door.verify_mode.includes('Custom/Unsupported (7)');
         const statusText = isDisabled ? 'Disabled / Not Present' : 'Operational';
-        const colorStyle = isDisabled ? 'border-left: 4px solid var(--text-secondary); opacity: 0.7;' : 'border-left: 4px solid var(--color-accent)';
+        const colorStyle = isDisabled ? 'border-l-4 border-l-text-secondary opacity-70' : 'border-l-4 border-l-accent';
         
         // Find if there's a matching relay (door 1 usually maps to relay 1)
-        const relayBtnHTML = isDisabled ? '' : `<button class="btn secondary trigger-door-btn" data-relay="${door.door_id}" style="margin-top: 0.5rem; float:right;">Remote Trigger (5s)</button>`;
+        const relayBtnHTML = isDisabled ? '' : `<button class="btn secondary trigger-door-btn mt-2 float-right text-xs px-3 py-1.5" data-relay="${door.door_id}">Remote Trigger (5s)</button>`;
 
         container.innerHTML += `
-          <div class="stat-card glass-panel" style="${colorStyle}">
-            <h3>Door ${door.door_id} Node</h3>
-            <p class="stat-value" style="font-size:1.25rem;">${statusText}</p>
-            <div style="margin-top:1rem;font-size:0.875rem;color:var(--text-secondary);">
-               Verify Mode Configured: ${door.verify_mode}
+          <div class="stat-card glass-panel interactive ${colorStyle}">
+            <h3 class="text-sm font-medium text-text-secondary mb-1">Door ${door.door_id} Node</h3>
+            <p class="stat-value text-xl font-semibold">${statusText}</p>
+            <div class="mt-4 text-sm text-text-secondary relative">
+               Verify Mode Configured:<br>
+               <span class="font-medium text-text-primary block mt-1">${door.verify_mode}</span>
                ${relayBtnHTML}
+               <div class="clear-both"></div>
             </div>
           </div>
         `;
