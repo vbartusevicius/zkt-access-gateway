@@ -45,5 +45,7 @@ EXPOSE 8000
 ENV ZKT_CONNSTR=""
 ENV MQTT_BROKER=""
 
-# Start the uvicorn API server via the native linux python environment
-CMD ["python3", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Start the uvicorn API server via the isolated uv virtual environment
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
