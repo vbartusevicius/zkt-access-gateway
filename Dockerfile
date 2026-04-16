@@ -31,9 +31,8 @@ RUN unzip -q pull_sdk.zip -d /sdk_temp \
     && rm -rf /sdk_temp pull_sdk.zip
 
 # Setup the native Linux backend
-COPY pyproject.toml .
-RUN uv pip compile pyproject.toml -o requirements.txt \
-    && uv pip install --system --break-system-packages -r requirements.txt
+COPY pyproject.toml uv.lock ./
+RUN uv sync --no-dev
 
 # Copy backend source
 COPY backend/ ./backend/
