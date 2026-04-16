@@ -8,7 +8,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Main Image
-FROM --platform=linux/amd64 tobix/pywine:3.8
+FROM tobix/pywine:3.8
 
 # Install native linux dependencies and python3 for the API
 RUN apt-get update \

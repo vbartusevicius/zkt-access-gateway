@@ -3,6 +3,7 @@ version: '3.8'
 services:
   zkt-gateway:
     build: .
+    platform: linux/amd64
     container_name: zkt-gateway
     init: true
     restart: unless-stopped
