@@ -140,3 +140,15 @@ def get_hardware():
         cursor.execute("SELECT value FROM hardware WHERE key = 'state'")
         row = cursor.fetchone()
         return json.loads(row['value']) if row else {"hw": {}, "doors": []}
+
+def get_latest_event_per_door():
+    """Retrieve the single most recent recorded event for each distinct door"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT * FROM events 
+            WHERE id IN (
+                SELECT MAX(id) FROM events GROUP BY door_id
+            )
+        ''')
+        return [dict(row) for row in cursor.fetchall()]

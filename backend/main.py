@@ -19,7 +19,8 @@ app_state = {
     "zk_connected": False,
     "zk_ip": "",
     "zk_sn": "",
-    "users_count": 0
+    "users_count": 0,
+    "states_restored": False
 }
 
 def _publish_new_events(events):
@@ -27,6 +28,18 @@ def _publish_new_events(events):
         return
     new_events = save_events(events)
     for event in new_events:
+        mqtt.publish_event(
+            event["timestamp"],
+            event["door_id"],
+            event["card_id"],
+            event["event_type"]
+        )
+
+def _publish_restored_states():
+    """Queries the SQLite database upon boot to repopulate HA visually with the last known hardware states"""
+    from backend.database import get_latest_event_per_door
+    events = get_latest_event_per_door()
+    for event in events:
         mqtt.publish_event(
             event["timestamp"],
             event["door_id"],
@@ -87,6 +100,12 @@ def full_sync_job():
 
         _ensure_mqtt(serial=app_state["zk_sn"])
         mqtt.publish_hardware_discovery(hw, res.get("doors", []))
+        
+        # Instantly hydrate Home Assistant sensors from SQLite DB across first execution!
+        if not app_state.get("states_restored"):
+            _publish_restored_states()
+            app_state["states_restored"] = True
+            
         _publish_new_events(res.get("events", []))
         mqtt.publish_status(True, app_state["zk_ip"], app_state["zk_sn"])
     else:
