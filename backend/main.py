@@ -1,4 +1,5 @@
 import os
+import time
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Body
@@ -60,6 +61,10 @@ def _ensure_mqtt(serial=""):
     user = os.environ.get("MQTT_USER")
     password = os.environ.get("MQTT_PASSWORD")
     mqtt.connect(broker, port, user, password, serial=serial, on_command_callback=handle_mqtt_command)
+    for _ in range(50):
+        if mqtt.connected:
+            break
+        time.sleep(0.1)
 
 def full_sync_job():
     """Heavy job — pulls hardware, users, doors, and events."""
