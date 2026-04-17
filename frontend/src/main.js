@@ -172,8 +172,37 @@ class AppState {
   formatEventType(type) {
     const types = {
       0: 'Normal Punch Open',
+      1: 'Punch during Normal Open',
+      2: 'First Card Normal Open',
+      3: 'Multi-Card Open',
+      4: 'Emergency Password Open',
+      5: 'Open during Normal Open',
+      6: 'Linkage Event Triggered',
+      7: 'Cancel Alarm',
+      8: 'Remote Opening',
+      9: 'Remote Closing',
+      10: 'Disable Intraday Normal Open',
+      11: 'Enable Intraday Normal Open',
+      12: 'Open Auxiliary Output',
+      13: 'Close Auxiliary Output',
+      20: 'Too Short Punch Interval',
+      21: 'Door Inactive Time Zone',
+      22: 'Illegal Time Zone',
+      23: 'Access Denied',
+      24: 'Anti-Passback',
+      25: 'Interlock',
+      26: 'Multi-Card Authentication',
       27: 'Unregistered Card',
-      // Add other types based on ZKAccess SDK docs
+      28: 'Opening Timeout',
+      29: 'Card Expired',
+      30: 'Password Error',
+      200: 'Door Open',
+      201: 'Door Closed',
+      202: 'Exit Button Open',
+      203: 'Door Open Too Long',
+      204: 'Forced Open Alarm',
+      220: 'Duress Password Open',
+      221: 'Opened Unexpectedly',
     };
     return types[type] || `Code: ${type}`;
   }
@@ -282,8 +311,12 @@ class AppState {
 
   async fetchHardware() {
     try {
-      const res = await fetch(`${API_BASE}/hardware`);
-      const data = await res.json();
+      const [hwRes, evRes] = await Promise.all([
+        fetch(`${API_BASE}/hardware`),
+        fetch(`${API_BASE}/events`)
+      ]);
+      const data = await hwRes.json();
+      const evData = await evRes.json();
       
       const container = document.getElementById('hw-params-container');
       container.innerHTML = '';
@@ -293,57 +326,130 @@ class AppState {
         return;
       }
 
-      // Base Device Info
+      const hw = data.hw;
+      const doors = data.doors || [];
+      const activeDoors = doors.filter(d => d.active);
+      const events = evData.events || [];
+
+      // --- Main Controller Card ---
       container.innerHTML += `
-        <div class="stat-card glass-panel interactive border-l-4 border-l-success">
-          <h3 class="text-sm font-medium text-text-secondary mb-1">Hardware Info</h3>
-          <p class="stat-value text-xl font-semibold">ZKTeco Access Device</p>
-          <div class="mt-4 text-sm text-text-secondary leading-relaxed">
-             IP: ${data.hw.ip}<br>
-             SN: ${data.hw.serial_number}<br>
-             Doors: ${data.hw.door_count}<br>
-             Readers: ${data.hw.reader_count}<br>
-             Relays/Locks: ${data.hw.relay_count}<br>
-             Aux Inputs: ${data.hw.aux_input_count}
+        <div class="stat-card glass-panel interactive border-l-4 border-l-success col-span-full">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 rounded-lg bg-success/20 flex items-center justify-center">
+              <svg class="w-5 h-5 text-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold">${hw.device_name || 'ZKTeco Access Controller'}</h3>
+              <p class="text-sm text-text-secondary">Main Controller</p>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div><span class="text-text-secondary">IP Address</span><br><span class="font-medium">${hw.ip}</span></div>
+            <div><span class="text-text-secondary">Serial Number</span><br><span class="font-medium">${hw.serial_number}</span></div>
+            <div><span class="text-text-secondary">Doors</span><br><span class="font-medium">${activeDoors.length} active / ${hw.door_count} total</span></div>
+            <div><span class="text-text-secondary">Readers</span><br><span class="font-medium">${hw.reader_count}</span></div>
           </div>
         </div>
       `;
 
-      // Render Each Door separately
-      (data.doors || []).forEach(door => {
-        const isDisabled = door.verify_mode.includes('Custom/Unsupported (7)');
-        const statusText = isDisabled ? 'Disabled / Not Present' : 'Operational';
-        const colorStyle = isDisabled ? 'border-l-4 border-l-text-secondary opacity-70' : 'border-l-4 border-l-accent';
-        
-        // Find if there's a matching relay (door 1 usually maps to relay 1)
-        const relayBtnHTML = isDisabled ? '' : `<button class="btn secondary trigger-door-btn mt-2 float-right text-xs px-3 py-1.5" data-relay="${door.door_id}">Remote Trigger (5s)</button>`;
+      // --- Per-Active-Door Sub-Device Cards ---
+      activeDoors.forEach(door => {
+        const did = door.door_id;
+
+        // Find last event for this door
+        const lastDoorEvent = events.find(ev => ev.door_id === did);
+        const lastEventHTML = lastDoorEvent
+          ? `<span class="font-medium text-text-primary">${this.formatEventType(lastDoorEvent.event_type)}</span>
+             <span class="text-xs text-text-secondary ml-2">${new Date(lastDoorEvent.timestamp).toLocaleString()}</span>`
+          : '<span class="text-text-secondary italic">No events yet</span>';
+
+        // Find last card for this door
+        const lastCardEvent = events.find(ev => ev.door_id === did && ev.card_id);
+        const lastCardHTML = lastCardEvent
+          ? `<span class="font-medium text-text-primary">${lastCardEvent.card_id}</span>`
+          : '<span class="text-text-secondary italic">--</span>';
+
+        // Door open/close from last contact event
+        const contactEvent = events.find(ev => ev.door_id === did && [200, 201, 202].includes(ev.event_type));
+        let doorStateHTML = '<span class="text-text-secondary italic">Unknown</span>';
+        if (contactEvent) {
+          const isOpen = [200, 202].includes(contactEvent.event_type);
+          doorStateHTML = isOpen
+            ? '<span class="text-danger font-medium">Open</span>'
+            : '<span class="text-success font-medium">Closed</span>';
+        }
+
+        // Buttons
+        const lockBtnHTML = `<button class="btn secondary door-lock-btn text-xs px-3 py-1.5" data-door="${did}">
+          <svg class="w-4 h-4 inline mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+          Door Lock
+        </button>`;
+        const auxBtnHTML = (door.aux_relay_count || 0) > 0
+          ? `<button class="btn secondary aux-relay-btn text-xs px-3 py-1.5" data-door="${did}">
+              <svg class="w-4 h-4 inline mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m11-7h-6m-6 0H1"/></svg>
+              Aux Relay
+            </button>`
+          : '';
 
         container.innerHTML += `
-          <div class="stat-card glass-panel interactive ${colorStyle}">
-            <h3 class="text-sm font-medium text-text-secondary mb-1">Door ${door.door_id} Node</h3>
-            <p class="stat-value text-xl font-semibold">${statusText}</p>
-            <div class="mt-4 text-sm text-text-secondary relative">
-               Verify Mode Configured:<br>
-               <span class="font-medium text-text-primary block mt-1">${door.verify_mode}</span>
-               ${relayBtnHTML}
-               <div class="clear-both"></div>
+          <div class="stat-card glass-panel interactive border-l-4 border-l-accent">
+            <div class="flex items-center justify-between mb-4">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-accent/20 flex items-center justify-center">
+                  <svg class="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                </div>
+                <div>
+                  <h3 class="text-lg font-semibold">Door ${did}</h3>
+                  <p class="text-xs text-text-secondary">via ${hw.device_name || 'Controller'}</p>
+                </div>
+              </div>
+              <div>${doorStateHTML}</div>
+            </div>
+            <div class="grid grid-cols-2 gap-3 text-sm mb-4">
+              <div><span class="text-text-secondary">Verify Mode</span><br><span class="font-medium">${door.verify_mode}</span></div>
+              <div><span class="text-text-secondary">Reader</span><br><span class="font-medium">${door.reader || 'Unknown'}</span></div>
+              <div><span class="text-text-secondary">Last Event</span><br>${lastEventHTML}</div>
+              <div><span class="text-text-secondary">Last Card</span><br>${lastCardHTML}</div>
+            </div>
+            <div class="flex gap-2 pt-3 border-t border-white/5">
+              ${lockBtnHTML}
+              ${auxBtnHTML}
             </div>
           </div>
         `;
       });
-      
-      // Bind door remote triggers
-      document.querySelectorAll('.trigger-door-btn').forEach(btn => {
+
+      // Bind door lock buttons
+      document.querySelectorAll('.door-lock-btn').forEach(btn => {
          btn.addEventListener('click', async (e) => {
-             const relayId = e.currentTarget.dataset.relay;
+             const doorId = e.currentTarget.dataset.door;
              try {
-                showToast(`Triggering Relay ${relayId}...`, 'neutral');
-                const res = await fetch(`${API_BASE}/relays/${relayId}/trigger`, { method: 'POST' });
+                showToast(`Opening Door ${doorId}...`, 'neutral');
+                const res = await fetch(`${API_BASE}/relays/${doorId}/trigger`, { method: 'POST' });
                 const resData = await res.json();
                 if (resData.success) {
-                    showToast(`Relay ${relayId} successfully triggered!`, 'success');
+                    showToast(`Door ${doorId} lock triggered!`, 'success');
                 } else {
-                    showToast(`Remote Trigger Failed: ${resData.detail}`, 'error');
+                    showToast(`Failed: ${resData.detail}`, 'error');
+                }
+             } catch(err) {
+                showToast(`System Error`, 'error');
+             }
+         });
+      });
+
+      // Bind aux relay buttons
+      document.querySelectorAll('.aux-relay-btn').forEach(btn => {
+         btn.addEventListener('click', async (e) => {
+             const doorId = e.currentTarget.dataset.door;
+             try {
+                showToast(`Triggering Aux Relay for Door ${doorId}...`, 'neutral');
+                const res = await fetch(`${API_BASE}/aux/${doorId}/trigger`, { method: 'POST' });
+                const resData = await res.json();
+                if (resData.success) {
+                    showToast(`Aux Relay for Door ${doorId} triggered!`, 'success');
+                } else {
+                    showToast(`Failed: ${resData.detail}`, 'error');
                 }
              } catch(err) {
                 showToast(`System Error`, 'error');

@@ -219,6 +219,17 @@ def trigger_relay(relay_id: int):
         return {"success": True}
     return {"success": False, "detail": res.get("error", "Unknown error")}
 
+@app.post("/api/aux/{relay_id}/trigger")
+def trigger_aux(relay_id: int):
+    connstr = os.environ.get("ZKT_CONNSTR")
+    if not connstr:
+        return {"success": False, "detail": "Missing connection string"}
+        
+    res = run_zk_command(connstr, "trigger_aux", relay_id=relay_id)
+    if res and res.get("success"):
+        return {"success": True}
+    return {"success": False, "detail": res.get("error", "Unknown error")}
+
 @app.post("/api/device/sync-time")
 def sync_device_time():
     connstr = os.environ.get("ZKT_CONNSTR")
