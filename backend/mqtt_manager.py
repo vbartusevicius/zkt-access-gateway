@@ -72,8 +72,13 @@ class MQTTManager:
         # Subscribe to all internal command directives
         self.client.subscribe(f"zkt/{self.device_id}/+/set")
 
-        # Discover all available physical relays as triggers (buttons)
+        # Fetch topological counts natively reported from the ZK Hardware Processor
         relay_count = hw_dict.get("relay_count", 0)
+        door_count = hw_dict.get("door_count", 0)
+        reader_count = hw_dict.get("reader_count", 0)
+        aux_input_count = hw_dict.get("aux_input_count", 0)
+
+        # 1. Discover all physical Relays as Trigger Buttons
         for i in range(1, relay_count + 1):
             config = {
                 "name": f"Trigger Relay {i}",
@@ -84,6 +89,43 @@ class MQTTManager:
                 "device": device_info
             }
             self.publish(f"homeassistant/button/{self.device_id}/relay_{i}/config", config, retain=True)
+
+        # 2. Discover all authentic Doors as lock/button entities
+        for i in range(1, door_count + 1):
+            config = {
+                "name": f"Open Door {i}",
+                "unique_id": f"{self.device_id}_door_{i}",
+                "command_topic": f"zkt/{self.device_id}/door_{i}/set",
+                "payload_press": "OPEN",
+                "icon": "mdi:door-open",
+                "device": device_info
+            }
+            self.publish(f"homeassistant/button/{self.device_id}/door_{i}/config", config, retain=True)
+
+        # 3. Discover all Readers as state sensors (last card read)
+        for i in range(1, reader_count + 1):
+            config = {
+                "name": f"Reader {i} Last Card",
+                "unique_id": f"{self.device_id}_reader_{i}",
+                "state_topic": f"zkt/{self.device_id}/reader_{i}/state",
+                "icon": "mdi:card-account-details-outline",
+                "device": device_info
+            }
+            self.publish(f"homeassistant/sensor/{self.device_id}/reader_{i}/config", config, retain=True)
+
+        # 4. Discover all Aux Inputs as Binary Sensors
+        for i in range(1, aux_input_count + 1):
+            config = {
+                "name": f"Auxiliary Input {i}",
+                "unique_id": f"{self.device_id}_aux_{i}",
+                "state_topic": f"zkt/{self.device_id}/aux_{i}/state",
+                "payload_on": "ON",
+                "payload_off": "OFF",
+                "device_class": "problem",
+                "icon": "mdi:eye-outline",
+                "device": device_info
+            }
+            self.publish(f"homeassistant/binary_sensor/{self.device_id}/aux_{i}/config", config, retain=True)
 
         for action, name, icon in [("reboot", "Reboot Controller", "mdi:restart"), ("sync_time", "Sync Time", "mdi:clock-sync")]:
             config = {
@@ -157,5 +199,8 @@ class MQTTManager:
             "description": f"Event {event_type} on Door {door_id}"
         }
         self.publish(f"zkt/{self.device_id}/event", payload)
+
+        if door_id > 0 and card_id:
+            self.publish(f"zkt/{self.device_id}/reader_{door_id}/state", card_id)
 
 mqtt = MQTTManager()

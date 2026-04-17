@@ -46,16 +46,13 @@ def sync_job():
         events = res.get("events", [])
         if events:
             save_events(events)
-            # Find the actual newest event locally after merge to accurately publish
-            # Or just publish the last one from the fetched list
-            latest = events[-1]
-            mqtt.publish_event(
-                latest["timestamp"],
-                latest["door_id"],
-                latest["card_id"],
-                latest["event_type"]
-            )
-            
+            for event in events:
+                mqtt.publish_event(
+                    event["timestamp"],
+                    event["door_id"],
+                    event["card_id"],
+                    event["event_type"]
+                )
         mqtt.publish_status(True, app_state["zk_ip"])
     else:
         app_state["zk_connected"] = False
@@ -159,7 +156,6 @@ def create_user(payload: dict = Body(...)):
                          admin=bool(payload.get("super_authorize", False)))
     
     if res and res.get("success"):
-        # Kick off a fast background sync to immediately update local SQLite DB
         scheduler.add_job(sync_job)
         return {"success": True}
     return {"success": False, "detail": res.get("error", "Unknown error")}
