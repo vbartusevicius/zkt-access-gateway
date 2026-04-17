@@ -200,6 +200,15 @@ class MQTTManager:
                 "icon": "mdi:card-account-details",
             }, door_info, avail)
 
+            # Door open/close sensor
+            self._publish_discovery("binary_sensor", f"door_{did}_contact", {
+                "name": "Door",
+                "state_topic": f"zkt/{self.device_id}/door_{did}/contact",
+                "payload_on": "open",
+                "payload_off": "closed",
+                "device_class": "door",
+            }, door_info, avail)
+
             # Door Lock button
             self._publish_discovery("button", f"relay_{did}", {
                 "name": "Door Lock",
@@ -281,6 +290,12 @@ class MQTTManager:
             "description": description
         }
         self.publish(f"zkt/{self.device_id}/door_{door_id}/event", payload)
+
+        # Update door contact state based on event
+        if event_type in (200, 202):
+            self.publish(f"zkt/{self.device_id}/door_{door_id}/contact", "open", retain=True)
+        elif event_type == 201:
+            self.publish(f"zkt/{self.device_id}/door_{door_id}/contact", "closed", retain=True)
 
 
 mqtt = MQTTManager()
