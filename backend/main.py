@@ -1,7 +1,7 @@
 import os
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, Body
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -21,12 +21,39 @@ app_state = {
     "users_count": 0
 }
 
-def sync_job():
-    """Periodic job pulling full state dump."""
+def _publish_new_events(events):
+    if not events:
+        return
+    new_events = save_events(events)
+    for event in new_events:
+        mqtt.publish_event(
+            event["timestamp"],
+            event["door_id"],
+            event["card_id"],
+            event["event_type"]
+        )
+
+def poll_job():
+    """Lightweight job — only fetches unread events from the device."""
     connstr = os.environ.get("ZKT_CONNSTR")
     if not connstr:
         return
-        
+
+    res = run_zk_command(connstr, "poll_events")
+    if res and res.get("success"):
+        app_state["zk_connected"] = True
+        _publish_new_events(res.get("events", []))
+        mqtt.publish_status(True, app_state["zk_ip"], app_state["zk_sn"])
+    else:
+        app_state["zk_connected"] = False
+        mqtt.publish_status(False)
+
+def full_sync_job():
+    """Heavy job — pulls hardware, users, doors, and events."""
+    connstr = os.environ.get("ZKT_CONNSTR")
+    if not connstr:
+        return
+
     res = run_zk_command(connstr, "state_dump")
     if res and res.get("success"):
         app_state["zk_connected"] = True
@@ -34,26 +61,14 @@ def sync_job():
         app_state["zk_ip"] = hw.get("ip", "")
         app_state["zk_sn"] = hw.get("serial_number", "")
         app_state["users_count"] = len(res.get("users", []))
-        
-        # Save payload
+
         from backend.database import save_users, save_hardware
         save_users(res.get("users", []))
         save_hardware(hw, res.get("doors", []))
-        
-        # Publish deep HA integration structure
+
         mqtt.publish_hardware_discovery(hw)
-        
-        events = res.get("events", [])
-        if events:
-            save_events(events)
-            for event in events:
-                mqtt.publish_event(
-                    event["timestamp"],
-                    event["door_id"],
-                    event["card_id"],
-                    event["event_type"]
-                )
-        mqtt.publish_status(True, app_state["zk_ip"])
+        _publish_new_events(res.get("events", []))
+        mqtt.publish_status(True, app_state["zk_ip"], app_state["zk_sn"])
     else:
         app_state["zk_connected"] = False
         mqtt.publish_status(False)
@@ -91,10 +106,11 @@ async def lifespan(app: FastAPI):
         password = os.environ.get("MQTT_PASSWORD")
         mqtt.connect(broker, port, user, password, on_command_callback=handle_mqtt_command)
 
-    # Start scheduler with an immediate first run
     from datetime import datetime
-    sync_interval = int(os.environ.get("ZK_SYNC_INTERVAL", 30))
-    scheduler.add_job(sync_job, 'interval', seconds=sync_interval, next_run_time=datetime.now())
+    poll_interval = int(os.environ.get("ZK_SYNC_INTERVAL", 30))
+    full_sync_interval = int(os.environ.get("ZK_FULL_SYNC_INTERVAL", 300))
+    scheduler.add_job(full_sync_job, 'interval', seconds=full_sync_interval, next_run_time=datetime.now(), id='full_sync')
+    scheduler.add_job(poll_job, 'interval', seconds=poll_interval, id='poll')
     scheduler.start()
     
     yield
@@ -156,7 +172,7 @@ def create_user(payload: dict = Body(...)):
                          admin=bool(payload.get("super_authorize", False)))
     
     if res and res.get("success"):
-        scheduler.add_job(sync_job)
+        scheduler.add_job(full_sync_job)
         return {"success": True}
     return {"success": False, "detail": res.get("error", "Unknown error")}
 
@@ -168,7 +184,7 @@ def delete_user(pin: str):
         
     res = run_zk_command(connstr, "delete_user", pin=pin)
     if res and res.get("success"):
-        scheduler.add_job(sync_job)
+        scheduler.add_job(full_sync_job)
         return {"success": True}
     return {"success": False, "detail": res.get("error", "Unknown error")}
 

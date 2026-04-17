@@ -12,5 +12,8 @@ services:
       - MQTT_PORT=1883
       - MQTT_USER=
       - MQTT_PASSWORD=
+      # - ZK_BRIDGE_TIMEOUT=60
+      # - ZK_SYNC_INTERVAL=30
+      # - ZK_FULL_SYNC_INTERVAL=300
     # volumes:
     #   - ./data:/app/data

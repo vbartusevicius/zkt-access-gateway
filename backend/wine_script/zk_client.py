@@ -31,7 +31,7 @@ def dt_to_str(obj):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--connstr", required=True)
-    parser.add_argument("--action", required=True, choices=["status", "state_dump", "test", "create_user", "delete_user", "trigger_relay", "restart", "sync_time"])
+    parser.add_argument("--action", required=True, choices=["state_dump", "poll_events", "test", "create_user", "delete_user", "trigger_relay", "restart", "sync_time"])
     parser.add_argument("--pin", type=str, default="")
     parser.add_argument("--card", type=str, default="")
     parser.add_argument("--group", type=str, default="1")
@@ -47,22 +47,12 @@ def main():
             return
 
         with ZKAccess(connstr=args.connstr) as zk:
-            if args.action == "status":
-                users_count = zk.table(User).count()
-                data = {
-                    "success": True,
-                    "connected": True,
-                    "ip": zk.parameters.ip_address,
-                    "serial_number": zk.parameters.serial_number,
-                    "users_count": users_count
-                }
-                print(json.dumps(data, cls=SafeJSONEncoder))
-            
-            elif args.action == "state_dump":
+            if args.action == "state_dump":
                 # Pull Parameters & Hardware
                 hw = {
                     "ip": zk.parameters.ip_address,
                     "serial_number": zk.parameters.serial_number,
+                    "device_name": zk.parameters.device_name,
                     "door_count": len(zk.doors),
                     "relay_count": len(zk.relays),
                     "reader_count": len(zk.readers),
@@ -119,6 +109,22 @@ def main():
                     "events": transactions
                 }
                 print(json.dumps(data, cls=SafeJSONEncoder))
+
+            elif args.action == "poll_events":
+                try:
+                    tx_qs = zk.table('Transaction').unread()
+                    transactions = []
+                    for tx in tx_qs:
+                        transactions.append({
+                            "timestamp": dt_to_str(tx.time),
+                            "door_id": tx.door,
+                            "card_id": tx.card,
+                            "pin": tx.pin,
+                            "event_type": tx.event_type
+                        })
+                except Exception as e:
+                    transactions = []
+                print(json.dumps({"success": True, "events": transactions}, cls=SafeJSONEncoder))
 
             elif args.action == "create_user":
                 my_user = User(card=args.card, pin=args.pin, group=args.group, super_authorize=args.admin)

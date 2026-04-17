@@ -38,6 +38,10 @@ def init_db():
                 value TEXT
             )
         ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_events_dedup
+            ON events (timestamp, door_id, event_type, card_id, pin)
+        ''')
         conn.commit()
 
 @contextmanager
@@ -50,7 +54,10 @@ def get_db():
         conn.close()
 
 
+MAX_EVENTS = 10000
+
 def save_events(events_list):
+    new_events = []
     with get_db() as conn:
         cursor = conn.cursor()
         for ev in events_list:
@@ -63,7 +70,14 @@ def save_events(events_list):
                     INSERT INTO events (timestamp, door_id, card_id, pin, event_type)
                     VALUES (?, ?, ?, ?, ?)
                 ''', (ev['timestamp'], ev.get('door_id', 0), ev.get('card_id', ''), ev.get('pin', ''), ev.get('event_type', 0)))
+                new_events.append(ev)
+        cursor.execute('''
+            DELETE FROM events WHERE id NOT IN (
+                SELECT id FROM events ORDER BY timestamp DESC LIMIT ?
+            )
+        ''', (MAX_EVENTS,))
         conn.commit()
+    return new_events
 
 def save_users(users_list):
     with get_db() as conn:
