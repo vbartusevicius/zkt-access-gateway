@@ -1,20 +1,16 @@
-version: '3.8'
-
 services:
   zkt-gateway:
-    build: .
+    image: valentas/zkt-access-gateway:1.0
     platform: linux/amd64
     container_name: zkt-gateway
-    init: true
     restart: unless-stopped
-    ports:
-      - "8000:8000"
+    # ports:
+    #   - "8000:8000"
     environment:
-      # Optional: default connection string, can also be set via UI
       - ZKT_CONNSTR=protocol=TCP,ipaddress=192.168.1.7,port=4370,timeout=4000,passwd=
       - MQTT_BROKER=
       - MQTT_PORT=1883
       - MQTT_USER=
       - MQTT_PASSWORD=
-    volumes:
-      - ./data:/app/data
+    # volumes:
+    #   - ./data:/app/data
