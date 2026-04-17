@@ -47,5 +47,5 @@ ENV MQTT_BROKER=""
 
 ENV PATH="/app/.venv/bin:$PATH"
 
-# Start the uvicorn API server via the isolated uv virtual environment
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Start the API server, explicitly enforcing a 0-byte core dump limit to prevent QEMU memory dumps on failure
+CMD ["/bin/sh", "-c", "ulimit -c 0 && exec uvicorn backend.main:app --host 0.0.0.0 --port 8000"]
