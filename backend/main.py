@@ -49,6 +49,18 @@ def poll_job():
         app_state["zk_connected"] = False
         mqtt.publish_status(False)
 
+def _ensure_mqtt(serial=""):
+    """Connect MQTT once after device info is known."""
+    if mqtt.connected:
+        return
+    broker = os.environ.get("MQTT_BROKER")
+    if not broker:
+        return
+    port = int(os.environ.get("MQTT_PORT", 1883))
+    user = os.environ.get("MQTT_USER")
+    password = os.environ.get("MQTT_PASSWORD")
+    mqtt.connect(broker, port, user, password, serial=serial, on_command_callback=handle_mqtt_command)
+
 def full_sync_job():
     """Heavy job — pulls hardware, users, doors, and events."""
     connstr = os.environ.get("ZKT_CONNSTR")
@@ -68,7 +80,8 @@ def full_sync_job():
         save_users(res.get("users", []))
         save_hardware(hw, res.get("doors", []))
 
-        mqtt.publish_hardware_discovery(hw)
+        _ensure_mqtt(serial=app_state["zk_sn"])
+        mqtt.publish_hardware_discovery(hw, res.get("doors", []))
         _publish_new_events(res.get("events", []))
         mqtt.publish_status(True, app_state["zk_ip"], app_state["zk_sn"])
     else:
@@ -100,14 +113,6 @@ async def lifespan(app: FastAPI):
     logger.info("Starting ZKAccess Gateway...")
     init_db()
 
-    # Init MQTT
-    broker = os.environ.get("MQTT_BROKER")
-    if broker:
-        port = int(os.environ.get("MQTT_PORT", 1883))
-        user = os.environ.get("MQTT_USER")
-        password = os.environ.get("MQTT_PASSWORD")
-        mqtt.connect(broker, port, user, password, on_command_callback=handle_mqtt_command)
-
     from datetime import datetime
     poll_interval = int(os.environ.get("ZK_SYNC_INTERVAL", 60))
     full_sync_interval = int(os.environ.get("ZK_FULL_SYNC_INTERVAL", 600))
@@ -120,6 +125,9 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown
     scheduler.shutdown()
+    if mqtt.client:
+        mqtt.client.disconnect()
+        mqtt.client.loop_stop()
 
 app = FastAPI(lifespan=lifespan)
 

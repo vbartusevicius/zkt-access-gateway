@@ -41,26 +41,34 @@ EVENT_TYPE_MAP = {
 }
 
 
+def _sanitize_id(s):
+    import re
+    return re.sub(r'[^a-zA-Z0-9]', '_', s).strip('_').lower()
+
+
 class MQTTManager:
     def __init__(self):
         self.client = None
         self.connected = False
-        self.broker = ""
-        self.port = 1883
         self.device_id = "zkt_gateway"
         self.device_name = "ZKTeco Access Gateway"
         self.on_command_callback = None
         self._discovery_published = False
         self._availability_topic = f"zkt/{self.device_id}/availability"
 
-    def connect(self, broker, port, user, password, on_command_callback=None):
+    def connect(self, broker, port, user, password, serial="", on_command_callback=None):
         if not broker:
             return False
 
-        self.broker = broker
-        self.port = port
+        if serial:
+            self.device_id = f"zkt_{_sanitize_id(serial)}"
+            self._availability_topic = f"zkt/{self.device_id}/availability"
+
         self.on_command_callback = on_command_callback
-        self.client = mqtt_client.Client(mqtt_client.CallbackAPIVersion.VERSION2, "zkt_gateway_client")
+        self.client = mqtt_client.Client(
+            mqtt_client.CallbackAPIVersion.VERSION2,
+            f"{self.device_id}_client"
+        )
 
         if user:
             self.client.username_pw_set(user, password)
@@ -81,7 +89,7 @@ class MQTTManager:
 
     def _on_connect(self, client, userdata, flags, reason_code, properties):
         if reason_code == 0:
-            logger.info("Connected to MQTT Broker!")
+            logger.info(f"Connected to MQTT Broker as {self.device_id}")
             self.connected = True
             self._discovery_published = False
             self.client.publish(self._availability_topic, "online", retain=True)
@@ -105,103 +113,123 @@ class MQTTManager:
             "payload_not_available": "offline"
         }
 
-    def publish_hardware_discovery(self, hw_dict):
+    def publish_hardware_discovery(self, hw_dict, doors_list=None):
         if not self.connected or self._discovery_published:
             return
 
         serial = hw_dict.get("serial_number", "")
-        device_info = {
+        model = hw_dict.get("device_name", "Access Controller")
+        avail = self._availability_config()
+        active_doors = [d for d in (doors_list or []) if d.get("active")]
+
+        # --- Main controller device ---
+        controller_info = {
             "identifiers": [self.device_id],
             "name": self.device_name,
             "manufacturer": "ZKTeco",
-            "model": hw_dict.get("device_name", "Access Controller"),
+            "model": model,
             "serial_number": serial
         }
-        avail = self._availability_config()
 
         self.client.subscribe(f"zkt/{self.device_id}/+/set")
 
-        # Device connectivity — binary_sensor
-        status_config = {
+        # Connection Status
+        self._publish_discovery("binary_sensor", "status", {
             "name": "Connection Status",
-            "unique_id": f"{self.device_id}_status",
             "state_topic": f"zkt/{self.device_id}/status",
             "value_template": "{{ value_json.status }}",
             "payload_on": "Online",
             "payload_off": "Offline",
             "device_class": "connectivity",
-            "device": device_info,
-            **avail
-        }
-        self.publish(f"homeassistant/binary_sensor/{self.device_id}/status/config", status_config, retain=True)
+        }, controller_info, avail)
 
-        # Last Event sensor
-        event_config = {
+        # Last Event
+        self._publish_discovery("sensor", "last_event", {
             "name": "Last Event",
-            "unique_id": f"{self.device_id}_last_event",
             "state_topic": f"zkt/{self.device_id}/event",
             "value_template": "{{ value_json.description }}",
             "json_attributes_topic": f"zkt/{self.device_id}/event",
             "icon": "mdi:door",
-            "device": device_info,
-            **avail
-        }
-        self.publish(f"homeassistant/sensor/{self.device_id}/last_event/config", event_config, retain=True)
+        }, controller_info, avail)
 
-        # Relay trigger buttons — only for doors that actually exist
-        door_count = hw_dict.get("door_count", 0)
-        for i in range(1, door_count + 1):
-            relay_config = {
-                "name": f"Trigger Relay {i}" if door_count > 1 else "Trigger Relay",
-                "unique_id": f"{self.device_id}_relay_{i}",
-                "command_topic": f"zkt/{self.device_id}/relay_{i}/set",
-                "payload_press": "TRIGGER",
-                "icon": "mdi:electric-switch",
-                "device": device_info,
-                **avail
-            }
-            self.publish(f"homeassistant/button/{self.device_id}/relay_{i}/config", relay_config, retain=True)
+        # Last Card
+        self._publish_discovery("sensor", "last_card", {
+            "name": "Last Card",
+            "state_topic": f"zkt/{self.device_id}/event",
+            "value_template": "{{ value_json.card_id }}",
+            "icon": "mdi:card-account-details",
+        }, controller_info, avail)
 
         # Utility buttons
         for action, name, icon in [("reboot", "Reboot Controller", "mdi:restart"), ("sync_time", "Sync Time", "mdi:clock-sync")]:
-            config = {
+            self._publish_discovery("button", action, {
                 "name": name,
-                "unique_id": f"{self.device_id}_{action}",
                 "command_topic": f"zkt/{self.device_id}/{action}/set",
                 "payload_press": "TRIGGER",
                 "icon": icon,
-                "device": device_info,
-                **avail
-            }
-            self.publish(f"homeassistant/button/{self.device_id}/{action}/config", config, retain=True)
+            }, controller_info, avail)
 
-        # Serial Number sensor
-        sn_config = {
+        # Serial Number
+        self._publish_discovery("sensor", "serial", {
             "name": "Serial Number",
-            "unique_id": f"{self.device_id}_serial",
             "state_topic": f"zkt/{self.device_id}/status",
             "value_template": "{{ value_json.serial_number }}",
             "icon": "mdi:identifier",
             "entity_category": "diagnostic",
-            "device": device_info,
-            **avail
-        }
-        self.publish(f"homeassistant/sensor/{self.device_id}/serial/config", sn_config, retain=True)
+        }, controller_info, avail)
 
-        # IP Address sensor
-        ip_config = {
+        # IP Address
+        self._publish_discovery("sensor", "ip", {
             "name": "IP Address",
-            "unique_id": f"{self.device_id}_ip",
             "state_topic": f"zkt/{self.device_id}/status",
             "value_template": "{{ value_json.ip }}",
             "icon": "mdi:ip-network",
             "entity_category": "diagnostic",
-            "device": device_info,
-            **avail
-        }
-        self.publish(f"homeassistant/sensor/{self.device_id}/ip/config", ip_config, retain=True)
+        }, controller_info, avail)
+
+        # --- Per-active-door sub-devices ---
+        multi = len(active_doors) > 1
+        for door in active_doors:
+            did = door["door_id"]
+            label = f"Door {did}" if multi else "Door"
+            door_dev_id = f"{self.device_id}_door_{did}"
+
+            door_info = {
+                "identifiers": [door_dev_id],
+                "name": f"{self.device_name} {label}",
+                "manufacturer": "ZKTeco",
+                "model": model,
+                "via_device": self.device_id,
+            }
+
+            # Relay trigger
+            self._publish_discovery("button", f"relay_{did}", {
+                "name": "Trigger Relay",
+                "command_topic": f"zkt/{self.device_id}/relay_{did}/set",
+                "payload_press": "TRIGGER",
+                "icon": "mdi:electric-switch",
+            }, door_info, avail)
+
+            # Verify mode
+            self._publish_discovery("sensor", f"door_{did}_mode", {
+                "name": "Verify Mode",
+                "state_topic": f"zkt/{self.device_id}/door_{did}/state",
+                "value_template": "{{ value_json.verify_mode }}",
+                "icon": "mdi:shield-lock",
+                "entity_category": "diagnostic",
+            }, door_info, avail)
+
+            # Publish initial door state
+            self.publish(f"zkt/{self.device_id}/door_{did}/state",
+                         {"verify_mode": door.get("verify_mode", "Unknown")}, retain=True)
 
         self._discovery_published = True
+
+    def _publish_discovery(self, component, object_id, config, device_info, avail):
+        config["unique_id"] = f"{self.device_id}_{object_id}"
+        config["device"] = device_info
+        config.update(avail)
+        self.publish(f"homeassistant/{component}/{self.device_id}/{object_id}/config", config, retain=True)
 
     def publish(self, topic, payload, retain=False):
         if not self.connected or not self.client:
@@ -232,7 +260,7 @@ class MQTTManager:
             "door_id": door_id,
             "card_id": card_id,
             "event_type": event_type,
-            "description": f"{description} — Door {door_id}"
+            "description": f"{description} - Door {door_id}"
         }
         self.publish(f"zkt/{self.device_id}/event", payload)
 

@@ -88,17 +88,21 @@ def main():
                 # Pull Doors specific parameters safely
                 doors_data = []
                 for i, door in enumerate(zk.doors):
+                    active = True
                     try:
                         v_mode = str(door.parameters.verify_mode.name) if hasattr(door.parameters.verify_mode, 'name') else str(door.parameters.verify_mode)
                     except ValueError as ve:
-                        # Sometimes devices return unsupported Enum integer values like "7"
                         v_mode = f"Custom/Unsupported ({str(ve).split(' ')[0]})"
+                        active = False
                     except Exception:
                         v_mode = "Unknown"
+                        active = False
                         
                     doors_data.append({
                         "door_id": i + 1,
-                        "verify_mode": v_mode
+                        "verify_mode": v_mode,
+                        "active": active,
+                        "relay_count": len(door.relays)
                     })
 
                 # Pull Users
