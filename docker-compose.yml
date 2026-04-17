@@ -1,6 +1,6 @@
 services:
   zkt-gateway:
-    image: valentas/zkt-access-gateway:1.0
+    image: valentas/zkt-access-gateway
     platform: linux/amd64
     container_name: zkt-gateway
     restart: unless-stopped
