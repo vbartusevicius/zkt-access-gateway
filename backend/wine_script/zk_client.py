@@ -28,6 +28,31 @@ def dt_to_str(obj):
         return obj.isoformat()
     return str(obj)
 
+def _fetch_transactions(zk, since_str=""):
+    """Fetch transactions from the device, optionally filtering by timestamp."""
+    since_dt = None
+    if since_str:
+        try:
+            since_dt = datetime.fromisoformat(since_str)
+        except (ValueError, TypeError):
+            pass
+    try:
+        transactions = []
+        for tx in zk.table('Transaction'):
+            ts = tx.time
+            if since_dt and isinstance(ts, datetime) and ts <= since_dt:
+                continue
+            transactions.append({
+                "timestamp": dt_to_str(ts),
+                "door_id": tx.door,
+                "card_id": tx.card,
+                "pin": tx.pin,
+                "event_type": tx.event_type
+            })
+        return transactions
+    except Exception:
+        return []
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--connstr", required=True)
@@ -37,6 +62,7 @@ def main():
     parser.add_argument("--group", type=str, default="1")
     parser.add_argument("--admin", action="store_true")
     parser.add_argument("--relay_id", type=int, default=1)
+    parser.add_argument("--since", type=str, default="")
     args = parser.parse_args()
 
     try:
@@ -84,21 +110,8 @@ def main():
                 except Exception as e:
                     users = [{"error": str(e)}]
                 
-                # Pull Unread Transactions (replaces volatile events API)
-                try:
-                    tx_qs = zk.table('Transaction').unread()
-                    # It's safer to just fetch all historically unread transactions and let the backend deduplicate
-                    transactions = []
-                    for tx in tx_qs:
-                        transactions.append({
-                            "timestamp": dt_to_str(tx.time),
-                            "door_id": tx.door,
-                            "card_id": tx.card,
-                            "pin": tx.pin,
-                            "event_type": tx.event_type
-                        })
-                except Exception as e:
-                    transactions = []
+                # Pull Transactions — filter by --since if provided
+                transactions = _fetch_transactions(zk, args.since)
 
                 # Return mega JSON blob
                 data = {
@@ -111,19 +124,7 @@ def main():
                 print(json.dumps(data, cls=SafeJSONEncoder))
 
             elif args.action == "poll_events":
-                try:
-                    tx_qs = zk.table('Transaction').unread()
-                    transactions = []
-                    for tx in tx_qs:
-                        transactions.append({
-                            "timestamp": dt_to_str(tx.time),
-                            "door_id": tx.door,
-                            "card_id": tx.card,
-                            "pin": tx.pin,
-                            "event_type": tx.event_type
-                        })
-                except Exception as e:
-                    transactions = []
+                transactions = _fetch_transactions(zk, args.since)
                 print(json.dumps({"success": True, "events": transactions}, cls=SafeJSONEncoder))
 
             elif args.action == "create_user":

@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from backend.database import init_db, save_events, get_latest_events
+from backend.database import init_db, save_events, get_latest_events, get_latest_event_timestamp
 from backend.bridge_manager import run_zk_command
 from backend.mqtt_manager import mqtt
 
@@ -39,7 +39,8 @@ def poll_job():
     if not connstr:
         return
 
-    res = run_zk_command(connstr, "poll_events")
+    since = get_latest_event_timestamp()
+    res = run_zk_command(connstr, "poll_events", since=since)
     if res and res.get("success"):
         app_state["zk_connected"] = True
         _publish_new_events(res.get("events", []))
@@ -54,7 +55,8 @@ def full_sync_job():
     if not connstr:
         return
 
-    res = run_zk_command(connstr, "state_dump")
+    since = get_latest_event_timestamp()
+    res = run_zk_command(connstr, "state_dump", since=since)
     if res and res.get("success"):
         app_state["zk_connected"] = True
         hw = res.get("hardware", {})

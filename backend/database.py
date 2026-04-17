@@ -110,6 +110,13 @@ def save_hardware(hw_dict, doors_list):
         })))
         conn.commit()
 
+def get_latest_event_timestamp():
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT MAX(timestamp) as ts FROM events")
+        row = cursor.fetchone()
+        return row["ts"] if row and row["ts"] else ""
+
 def get_latest_events(limit=50):
     with get_db() as conn:
         cursor = conn.cursor()
