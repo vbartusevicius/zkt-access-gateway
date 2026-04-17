@@ -200,13 +200,22 @@ class MQTTManager:
                 "icon": "mdi:card-account-details",
             }, door_info, avail)
 
-            # Relay trigger
+            # Door Lock button
             self._publish_discovery("button", f"relay_{did}", {
-                "name": "Trigger Relay",
+                "name": "Door Lock",
                 "command_topic": f"zkt/{self.device_id}/relay_{did}/set",
                 "payload_press": "TRIGGER",
-                "icon": "mdi:electric-switch",
+                "icon": "mdi:door-open",
             }, door_info, avail)
+
+            # Aux Relay button (only if door has aux relays)
+            if door.get("aux_relay_count", 0) > 0:
+                self._publish_discovery("button", f"aux_{did}", {
+                    "name": "Aux Relay",
+                    "command_topic": f"zkt/{self.device_id}/aux_{did}/set",
+                    "payload_press": "TRIGGER",
+                    "icon": "mdi:electric-switch",
+                }, door_info, avail)
 
             # Verify mode
             self._publish_discovery("sensor", f"door_{did}_mode", {
@@ -217,20 +226,11 @@ class MQTTManager:
                 "entity_category": "diagnostic",
             }, door_info, avail)
 
-            # Lock driver time
-            self._publish_discovery("sensor", f"door_{did}_lock_time", {
-                "name": "Lock Driver Time",
-                "state_topic": f"zkt/{self.device_id}/door_{did}/state",
-                "value_template": "{{ value_json.lock_driver_time }}",
-                "icon": "mdi:timer-lock-outline",
-                "entity_category": "diagnostic",
-            }, door_info, avail)
-
-            # Reader number
+            # Reader
             self._publish_discovery("sensor", f"door_{did}_reader", {
                 "name": "Reader",
                 "state_topic": f"zkt/{self.device_id}/door_{did}/state",
-                "value_template": "{{ value_json.reader_number }}",
+                "value_template": "{{ value_json.reader }}",
                 "icon": "mdi:card-search",
                 "entity_category": "diagnostic",
             }, door_info, avail)
@@ -238,9 +238,7 @@ class MQTTManager:
             # Publish door state
             self.publish(f"zkt/{self.device_id}/door_{did}/state", {
                 "verify_mode": door.get("verify_mode", "Unknown"),
-                "lock_driver_time": door.get("lock_driver_time"),
-                "lock_on_close": door.get("lock_on_close"),
-                "reader_number": door.get("reader_number"),
+                "reader": door.get("reader", "Unknown"),
             }, retain=True)
 
         self._discovery_published = True

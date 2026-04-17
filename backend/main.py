@@ -109,6 +109,9 @@ def handle_mqtt_command(topic: str, payload: str):
         elif "/relay_" in topic and topic.endswith("/set"):
             relay_id = int(topic.split("/relay_")[1].split("/")[0])
             run_zk_command(connstr, "trigger_relay", relay_id=relay_id)
+        elif "/aux_" in topic and topic.endswith("/set"):
+            relay_id = int(topic.split("/aux_")[1].split("/")[0])
+            run_zk_command(connstr, "trigger_aux", relay_id=relay_id)
     except Exception as e:
         logger.error(f"Failed to handle incoming MQTT command: {e}")
 

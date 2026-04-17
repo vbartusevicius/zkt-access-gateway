@@ -108,7 +108,9 @@ def main():
                             door_info[attr] = None
 
                     door_info["lock_relay_count"] = len(door.relays.lock)
-                    door_info["reader_number"] = door.reader.number if hasattr(door.reader, 'number') else None
+                    door_info["aux_relay_count"] = len(door.relays.aux)
+                    rn = door.reader.number if hasattr(door.reader, 'number') else None
+                    door_info["reader"] = f"Reader {rn}" if rn is not None else "Unknown"
                     doors_data.append(door_info)
 
                 # Pull Users
@@ -154,7 +156,7 @@ def main():
                 print(json.dumps({"success": True}))
 
             elif args.action == "trigger_relay":
-                # Use .relays.lock to get the door lock relay (not aux relays)
+                # Trigger the door lock relay
                 door_idx = args.relay_id - 1
                 if door_idx < len(zk.doors):
                     lock_relays = zk.doors[door_idx].relays.lock
@@ -163,6 +165,19 @@ def main():
                         print(json.dumps({"success": True}))
                     else:
                         print(json.dumps({"success": False, "error": f"Door {args.relay_id} has no lock relay"}))
+                else:
+                    print(json.dumps({"success": False, "error": f"Door {args.relay_id} out of bounds"}))
+
+            elif args.action == "trigger_aux":
+                # Trigger the aux relay for a door
+                door_idx = args.relay_id - 1
+                if door_idx < len(zk.doors):
+                    aux_relays = zk.doors[door_idx].relays.aux
+                    if len(aux_relays) > 0:
+                        aux_relays.switch_on(5)
+                        print(json.dumps({"success": True}))
+                    else:
+                        print(json.dumps({"success": False, "error": f"Door {args.relay_id} has no aux relay"}))
                 else:
                     print(json.dumps({"success": False, "error": f"Door {args.relay_id} out of bounds"}))
 
