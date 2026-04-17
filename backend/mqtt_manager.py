@@ -188,15 +188,13 @@ class MQTTManager:
         }, controller_info, avail)
 
         # --- Per-active-door sub-devices ---
-        multi = len(active_doors) > 1
         for door in active_doors:
             did = door["door_id"]
-            label = f"Door {did}" if multi else "Door"
             door_dev_id = f"{self.device_id}_door_{did}"
 
             door_info = {
                 "identifiers": [door_dev_id],
-                "name": f"{self.device_name} {label}",
+                "name": f"{self.device_name} Door {did}",
                 "manufacturer": "ZKTeco",
                 "model": model,
                 "via_device": self.device_id,
@@ -219,9 +217,31 @@ class MQTTManager:
                 "entity_category": "diagnostic",
             }, door_info, avail)
 
-            # Publish initial door state
-            self.publish(f"zkt/{self.device_id}/door_{did}/state",
-                         {"verify_mode": door.get("verify_mode", "Unknown")}, retain=True)
+            # Sensor type
+            self._publish_discovery("sensor", f"door_{did}_sensor", {
+                "name": "Sensor Type",
+                "state_topic": f"zkt/{self.device_id}/door_{did}/state",
+                "value_template": "{{ value_json.sensor_type }}",
+                "icon": "mdi:magnet",
+                "entity_category": "diagnostic",
+            }, door_info, avail)
+
+            # Lock driver time
+            self._publish_discovery("sensor", f"door_{did}_lock_time", {
+                "name": "Lock Driver Time",
+                "state_topic": f"zkt/{self.device_id}/door_{did}/state",
+                "value_template": "{{ value_json.lock_driver_time }}",
+                "icon": "mdi:timer-lock-outline",
+                "entity_category": "diagnostic",
+            }, door_info, avail)
+
+            # Publish door state
+            self.publish(f"zkt/{self.device_id}/door_{did}/state", {
+                "verify_mode": door.get("verify_mode", "Unknown"),
+                "sensor_type": door.get("sensor_type"),
+                "lock_driver_time": door.get("lock_driver_time"),
+                "lock_on_close": door.get("lock_on_close"),
+            }, retain=True)
 
         self._discovery_published = True
 

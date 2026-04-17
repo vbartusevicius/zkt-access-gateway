@@ -88,22 +88,32 @@ def main():
                 # Pull Doors specific parameters safely
                 doors_data = []
                 for i, door in enumerate(zk.doors):
-                    active = True
+                    door_info = {"door_id": i + 1}
+
+                    # active_time_tz: 0 means door is inactive
                     try:
-                        v_mode = str(door.parameters.verify_mode.name) if hasattr(door.parameters.verify_mode, 'name') else str(door.parameters.verify_mode)
-                    except ValueError as ve:
-                        v_mode = f"Custom/Unsupported ({str(ve).split(' ')[0]})"
-                        active = False
+                        door_info["active_time_tz"] = int(door.parameters.active_time_tz)
                     except Exception:
-                        v_mode = "Unknown"
-                        active = False
-                        
-                    doors_data.append({
-                        "door_id": i + 1,
-                        "verify_mode": v_mode,
-                        "active": active,
-                        "relay_count": len(door.relays)
-                    })
+                        door_info["active_time_tz"] = 0
+                    door_info["active"] = door_info["active_time_tz"] != 0
+
+                    try:
+                        vm = door.parameters.verify_mode
+                        door_info["verify_mode"] = str(vm.name) if hasattr(vm, 'name') else str(vm)
+                    except ValueError as ve:
+                        door_info["verify_mode"] = f"Custom/Unsupported ({str(ve).split(' ')[0]})"
+                    except Exception:
+                        door_info["verify_mode"] = "Unknown"
+
+                    for attr in ("lock_on_close", "lock_driver_time", "magnet_alarm_duration", "sensor_type"):
+                        try:
+                            val = getattr(door.parameters, attr)
+                            door_info[attr] = str(val.name) if hasattr(val, 'name') else val
+                        except Exception:
+                            door_info[attr] = None
+
+                    door_info["relay_count"] = len(door.relays)
+                    doors_data.append(door_info)
 
                 # Pull Users
                 try:
@@ -148,14 +158,13 @@ def main():
                 print(json.dumps({"success": True}))
 
             elif args.action == "trigger_relay":
-                # Fallback zero-index mappings
-                target_relay = args.relay_id - 1
-                if target_relay < len(zk.relays):
-                    # We use default switch_on value (5 seconds)
-                    zk.relays[target_relay].switch_on(5)
+                # Door lock relays are under zk.doors[n].relays, NOT zk.relays (which are aux relays)
+                door_idx = args.relay_id - 1
+                if door_idx < len(zk.doors):
+                    zk.doors[door_idx].relays[0].switch_on(5)
                     print(json.dumps({"success": True}))
                 else:
-                    print(json.dumps({"success": False, "error": f"Relay {args.relay_id} out of bounds"}))
+                    print(json.dumps({"success": False, "error": f"Door {args.relay_id} out of bounds"}))
 
             elif args.action == "restart":
                 zk.restart()
