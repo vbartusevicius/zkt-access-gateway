@@ -96,7 +96,8 @@ async def lifespan(app: FastAPI):
 
     # Start scheduler with an immediate first run
     from datetime import datetime
-    scheduler.add_job(sync_job, 'interval', seconds=15, next_run_time=datetime.now())
+    sync_interval = int(os.environ.get("ZK_SYNC_INTERVAL", 30))
+    scheduler.add_job(sync_job, 'interval', seconds=sync_interval, next_run_time=datetime.now())
     scheduler.start()
     
     yield

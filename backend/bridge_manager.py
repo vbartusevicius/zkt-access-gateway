@@ -29,7 +29,7 @@ def run_zk_command(connstr: str, action: str, **kwargs) -> dict:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=15 # Safety timeout
+                timeout=int(os.environ.get("ZK_BRIDGE_TIMEOUT", 60))
             )
             
             if result.returncode != 0:
