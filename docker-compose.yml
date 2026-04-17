@@ -13,7 +13,7 @@ services:
       - MQTT_USER=
       - MQTT_PASSWORD=
       # - ZK_BRIDGE_TIMEOUT=60
-      # - ZK_SYNC_INTERVAL=30
-      # - ZK_FULL_SYNC_INTERVAL=300
+      # - ZK_SYNC_INTERVAL=60
+      # - ZK_FULL_SYNC_INTERVAL=600
     # volumes:
     #   - ./data:/app/data

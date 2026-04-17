@@ -107,10 +107,12 @@ async def lifespan(app: FastAPI):
         mqtt.connect(broker, port, user, password, on_command_callback=handle_mqtt_command)
 
     from datetime import datetime
-    poll_interval = int(os.environ.get("ZK_SYNC_INTERVAL", 30))
-    full_sync_interval = int(os.environ.get("ZK_FULL_SYNC_INTERVAL", 300))
-    scheduler.add_job(full_sync_job, 'interval', seconds=full_sync_interval, next_run_time=datetime.now(), id='full_sync')
-    scheduler.add_job(poll_job, 'interval', seconds=poll_interval, id='poll')
+    poll_interval = int(os.environ.get("ZK_SYNC_INTERVAL", 60))
+    full_sync_interval = int(os.environ.get("ZK_FULL_SYNC_INTERVAL", 600))
+    scheduler.add_job(full_sync_job, 'interval', seconds=full_sync_interval, next_run_time=datetime.now(),
+                       id='full_sync', coalesce=True, misfire_grace_time=full_sync_interval)
+    scheduler.add_job(poll_job, 'interval', seconds=poll_interval,
+                       id='poll', coalesce=True, misfire_grace_time=poll_interval)
     scheduler.start()
     
     yield

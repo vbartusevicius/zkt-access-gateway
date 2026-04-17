@@ -52,7 +52,7 @@ def main():
                 hw = {
                     "ip": zk.parameters.ip_address,
                     "serial_number": zk.parameters.serial_number,
-                    "device_name": zk.parameters.device_name,
+                    "device_name": getattr(zk.device_model, 'name', 'Access Controller'),
                     "door_count": len(zk.doors),
                     "relay_count": len(zk.relays),
                     "reader_count": len(zk.readers),
