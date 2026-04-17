@@ -144,7 +144,7 @@ class MQTTManager:
         }, controller_info, avail)
 
         # Utility buttons
-        for action, name, icon in [("reboot", "Reboot Controller", "mdi:restart"), ("sync_time", "Sync Time", "mdi:clock-sync")]:
+        for action, name, icon in [("reboot", "Reboot Controller", "mdi:restart"), ("sync_time", "Sync Time", "mdi:timer-sync")]:
             self._publish_discovery("button", action, {
                 "name": name,
                 "command_topic": f"zkt/{self.device_id}/{action}/set",
