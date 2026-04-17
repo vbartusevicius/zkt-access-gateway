@@ -7,6 +7,7 @@ import threading
 ZK_LOCK = threading.Lock()
 
 WINE_CMD = ["wine", "python", "backend/wine_script/zk_client.py"]
+DEBUG = os.environ.get("ZK_DEBUG", "").lower() in ("1", "true", "yes")
 
 def run_zk_command(connstr: str, action: str, **kwargs) -> dict:
     if not connstr:
@@ -23,8 +24,6 @@ def run_zk_command(connstr: str, action: str, **kwargs) -> dict:
     
     with ZK_LOCK:
         try:
-            # We run the command inside the Wine environment.
-            # Ensure we capture stdout correctly.
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -34,15 +33,20 @@ def run_zk_command(connstr: str, action: str, **kwargs) -> dict:
             
             if result.returncode != 0:
                 print(f"[BRIDGE] Wine process exited with {result.returncode}. Stdout: {result.stdout.strip()} | Stderr: {result.stderr.strip()}", flush=True)
-                # Check if there is valid JSON in stdout despite error
                 try:
-                    return json.loads(result.stdout)
+                    data = json.loads(result.stdout)
                 except json.JSONDecodeError:
                     return {"success": False, "error": f"Wine process error: {result.stderr.strip()}"}
-            try:
-                return json.loads(result.stdout)
-            except json.JSONDecodeError:
-                return {"success": False, "error": f"Invalid JSON returned: {result.stdout.strip()[:100]}"}
+            else:
+                try:
+                    data = json.loads(result.stdout)
+                except json.JSONDecodeError:
+                    return {"success": False, "error": f"Invalid JSON returned: {result.stdout.strip()[:100]}"}
+
+            if DEBUG:
+                print(f"[BRIDGE] action={action} response={json.dumps(data, indent=2)}", flush=True)
+
+            return data
                 
         except subprocess.TimeoutExpired:
             return {"success": False, "error": "Connection to ZK device timed out"}
