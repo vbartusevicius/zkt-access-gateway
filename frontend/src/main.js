@@ -37,10 +37,9 @@ class AppNavigation {
     activeSection.classList.add('active');
 
     // Trigger section-specific refreshes
-    if (targetId === 'dashboard') appState.fetchStatus();
+    if (targetId === 'dashboard') appState.fetchHardware();
     if (targetId === 'doors') appState.fetchEvents();
     if (targetId === 'users') appState.fetchUsers();
-    if (targetId === 'hardware') appState.fetchHardware();
   }
 }
 
@@ -106,35 +105,7 @@ class AppState {
     try {
       const res = await fetch(`${API_BASE}/status`);
       const data = await res.json();
-      
-      const badge = document.getElementById('controller-status');
-      
-      if (data.connected) {
-        badge.className = 'flex items-center gap-3 px-4 py-2 mt-2 w-max rounded-full text-sm font-medium bg-success-bg text-success border border-success/20';
-        badge.innerHTML = `
-          <span class="relative flex h-3 w-3">
-            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
-            <span class="relative inline-flex rounded-full h-3 w-3 bg-success"></span>
-          </span>
-          <span class="status-text tracking-wide">Connected</span>
-        `;
-        document.getElementById('stat-ip').textContent = data.ip || 'Unknown';
-        document.getElementById('stat-sn').textContent = data.serial_number || 'Unknown';
-        document.getElementById('stat-users').textContent = data.users_count || '0';
-      } else {
-        badge.className = 'flex items-center gap-3 px-4 py-2 mt-2 w-max rounded-full text-sm font-medium bg-white/5 text-text-secondary border border-panel-border';
-        badge.innerHTML = `
-          <span class="relative flex h-3 w-3">
-            <span class="relative inline-flex rounded-full h-3 w-3 bg-text-secondary"></span>
-          </span>
-          <span class="status-text tracking-wide">Offline</span>
-        `;
-        document.getElementById('stat-ip').textContent = '--';
-        document.getElementById('stat-sn').textContent = '--';
-      }
-
-      document.getElementById('stat-mqtt').textContent = data.mqtt_connected ? 'Active' : 'Disconnected';
-      
+      this._lastStatus = data;
     } catch (e) {
       console.error(e);
     }
@@ -311,12 +282,15 @@ class AppState {
 
   async fetchHardware() {
     try {
-      const [hwRes, evRes] = await Promise.all([
+      const [hwRes, evRes, statusRes] = await Promise.all([
         fetch(`${API_BASE}/hardware`),
-        fetch(`${API_BASE}/events`)
+        fetch(`${API_BASE}/events`),
+        fetch(`${API_BASE}/status`)
       ]);
       const data = await hwRes.json();
       const evData = await evRes.json();
+      const status = await statusRes.json();
+      this._lastStatus = status;
       
       const container = document.getElementById('hw-params-container');
       container.innerHTML = '';
@@ -331,23 +305,43 @@ class AppState {
       const activeDoors = doors.filter(d => d.active);
       const events = evData.events || [];
 
+      const isConnected = status.connected;
+      const isMqtt = status.mqtt_connected;
+      const usersCount = status.users_count || 0;
+
+      const connBadge = isConnected
+        ? `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-success/15 text-success border border-success/20">
+             <span class="w-2 h-2 rounded-full bg-success"></span>Online</span>`
+        : `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-white/5 text-text-secondary border border-panel-border">
+             <span class="w-2 h-2 rounded-full bg-text-secondary"></span>Offline</span>`;
+
+      const mqttBadge = isMqtt
+        ? `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-primary/15 text-primary border border-primary/20">
+             <span class="w-2 h-2 rounded-full bg-primary"></span>MQTT Active</span>`
+        : `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-white/5 text-text-secondary border border-panel-border">
+             <span class="w-2 h-2 rounded-full bg-text-secondary"></span>MQTT Off</span>`;
+
       // --- Main Controller Card ---
       container.innerHTML += `
         <div class="stat-card glass-panel interactive border-l-4 border-l-success col-span-full">
-          <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-lg bg-success/20 flex items-center justify-center">
-              <svg class="w-5 h-5 text-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg bg-success/20 flex items-center justify-center">
+                <svg class="w-5 h-5 text-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              </div>
+              <div>
+                <h3 class="text-lg font-semibold">${hw.device_name || 'ZKTeco Access Controller'}</h3>
+                <p class="text-sm text-text-secondary">Main Controller</p>
+              </div>
             </div>
-            <div>
-              <h3 class="text-lg font-semibold">${hw.device_name || 'ZKTeco Access Controller'}</h3>
-              <p class="text-sm text-text-secondary">Main Controller</p>
-            </div>
+            <div class="flex gap-2">${connBadge}${mqttBadge}</div>
           </div>
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div class="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
             <div><span class="text-text-secondary">IP Address</span><br><span class="font-medium">${hw.ip}</span></div>
-            <div><span class="text-text-secondary">Serial Number</span><br><span class="font-medium">${hw.serial_number}</span></div>
+            <div><span class="text-text-secondary">Serial Number</span><br><span class="font-medium break-all">${hw.serial_number}</span></div>
             <div><span class="text-text-secondary">Doors</span><br><span class="font-medium">${activeDoors.length} active / ${hw.door_count} total</span></div>
             <div><span class="text-text-secondary">Readers</span><br><span class="font-medium">${hw.reader_count}</span></div>
+            <div><span class="text-text-secondary">Users</span><br><span class="font-medium">${usersCount}</span></div>
           </div>
         </div>
       `;

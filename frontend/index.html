@@ -39,50 +39,15 @@
         <!-- Dashboard View -->
         <section id="dashboard" class="view-section active">
           <header class="flex justify-between items-center mb-8">
-            <h2 class="text-3xl font-semibold tracking-tight">System Overview</h2>
+            <h2 class="text-3xl font-semibold tracking-tight">Hardware Topology</h2>
             <div class="flex gap-3 items-center">
+              <button class="btn primary" id="refresh-hardware-btn">Refresh</button>
               <button class="btn primary" id="sync-time-btn">Sync Time</button>
               <button class="btn !bg-danger text-white shadow-[0_4px_14px_0_rgba(239,68,68,0.39)] hover:-translate-y-[1px] hover:shadow-[0_6px_20px_rgba(239,68,68,0.35)]" id="reboot-btn">Reboot Device</button>
             </div>
           </header>
-          
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-            <div class="stat-card glass-panel interactive">
-              <h3 class="text-sm font-medium text-text-secondary mb-2">Controller Status</h3>
-              <div class="flex items-center gap-3 px-4 py-2 mt-2 w-max rounded-full text-sm font-medium bg-success-bg text-success border border-success/20" id="controller-status">
-                <span class="relative flex h-3 w-3">
-                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
-                  <span class="relative inline-flex rounded-full h-3 w-3 bg-success"></span>
-                </span>
-                <span class="status-text tracking-wide">Connected</span>
-              </div>
-            </div>
-            <div class="stat-card glass-panel interactive">
-              <h3 class="text-sm font-medium text-text-secondary mb-2">Device IP</h3>
-              <p class="text-3xl font-semibold stat-value" id="stat-ip">--</p>
-            </div>
-            <div class="stat-card glass-panel interactive">
-              <h3 class="text-sm font-medium text-text-secondary mb-2">Serial Number</h3>
-              <p class="text-lg font-semibold stat-value break-all" id="stat-sn">--</p>
-            </div>
-            <div class="stat-card glass-panel interactive">
-              <h3 class="text-sm font-medium text-text-secondary mb-2">Total Users</h3>
-              <p class="text-3xl font-semibold stat-value" id="stat-users">--</p>
-            </div>
-            <div class="stat-card glass-panel interactive">
-              <h3 class="text-sm font-medium text-text-secondary mb-2">MQTT Status</h3>
-              <p class="text-3xl font-semibold stat-value" id="stat-mqtt">--</p>
-            </div>
-          </div>
-          
-          <div class="mt-8">
-            <header class="flex justify-between items-center mb-8">
-                <h2 class="text-3xl font-semibold tracking-tight">Hardware Topology</h2>
-                <button class="btn primary" id="refresh-hardware-btn">Refresh</button>
-            </header>
-            <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6" id="hw-params-container">
-                <!-- Dynamic Content -->
-            </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6" id="hw-params-container">
+              <!-- Dynamic Content -->
           </div>
         </section>
 
