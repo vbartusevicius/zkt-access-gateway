@@ -143,23 +143,6 @@ class MQTTManager:
             "device_class": "connectivity",
         }, controller_info, avail)
 
-        # Last Event
-        self._publish_discovery("sensor", "last_event", {
-            "name": "Last Event",
-            "state_topic": f"zkt/{self.device_id}/event",
-            "value_template": "{{ value_json.description }}",
-            "json_attributes_topic": f"zkt/{self.device_id}/event",
-            "icon": "mdi:door",
-        }, controller_info, avail)
-
-        # Last Card
-        self._publish_discovery("sensor", "last_card", {
-            "name": "Last Card",
-            "state_topic": f"zkt/{self.device_id}/event",
-            "value_template": "{{ value_json.card_id }}",
-            "icon": "mdi:card-account-details",
-        }, controller_info, avail)
-
         # Utility buttons
         for action, name, icon in [("reboot", "Reboot Controller", "mdi:restart"), ("sync_time", "Sync Time", "mdi:clock-sync")]:
             self._publish_discovery("button", action, {
@@ -200,6 +183,23 @@ class MQTTManager:
                 "via_device": self.device_id,
             }
 
+            # Last Event (per door)
+            self._publish_discovery("sensor", f"door_{did}_last_event", {
+                "name": "Last Event",
+                "state_topic": f"zkt/{self.device_id}/door_{did}/event",
+                "value_template": "{{ value_json.description }}",
+                "json_attributes_topic": f"zkt/{self.device_id}/door_{did}/event",
+                "icon": "mdi:door",
+            }, door_info, avail)
+
+            # Last Card (per door)
+            self._publish_discovery("sensor", f"door_{did}_last_card", {
+                "name": "Last Card",
+                "state_topic": f"zkt/{self.device_id}/door_{did}/event",
+                "value_template": "{{ value_json.card_id }}",
+                "icon": "mdi:card-account-details",
+            }, door_info, avail)
+
             # Relay trigger
             self._publish_discovery("button", f"relay_{did}", {
                 "name": "Trigger Relay",
@@ -217,15 +217,6 @@ class MQTTManager:
                 "entity_category": "diagnostic",
             }, door_info, avail)
 
-            # Sensor type
-            self._publish_discovery("sensor", f"door_{did}_sensor", {
-                "name": "Sensor Type",
-                "state_topic": f"zkt/{self.device_id}/door_{did}/state",
-                "value_template": "{{ value_json.sensor_type }}",
-                "icon": "mdi:magnet",
-                "entity_category": "diagnostic",
-            }, door_info, avail)
-
             # Lock driver time
             self._publish_discovery("sensor", f"door_{did}_lock_time", {
                 "name": "Lock Driver Time",
@@ -235,12 +226,21 @@ class MQTTManager:
                 "entity_category": "diagnostic",
             }, door_info, avail)
 
+            # Reader number
+            self._publish_discovery("sensor", f"door_{did}_reader", {
+                "name": "Reader",
+                "state_topic": f"zkt/{self.device_id}/door_{did}/state",
+                "value_template": "{{ value_json.reader_number }}",
+                "icon": "mdi:card-search",
+                "entity_category": "diagnostic",
+            }, door_info, avail)
+
             # Publish door state
             self.publish(f"zkt/{self.device_id}/door_{did}/state", {
                 "verify_mode": door.get("verify_mode", "Unknown"),
-                "sensor_type": door.get("sensor_type"),
                 "lock_driver_time": door.get("lock_driver_time"),
                 "lock_on_close": door.get("lock_on_close"),
+                "reader_number": door.get("reader_number"),
             }, retain=True)
 
         self._discovery_published = True
@@ -280,9 +280,9 @@ class MQTTManager:
             "door_id": door_id,
             "card_id": card_id,
             "event_type": event_type,
-            "description": f"{description} - Door {door_id}"
+            "description": description
         }
-        self.publish(f"zkt/{self.device_id}/event", payload)
+        self.publish(f"zkt/{self.device_id}/door_{door_id}/event", payload)
 
 
 mqtt = MQTTManager()

@@ -90,13 +90,6 @@ def main():
                 for i, door in enumerate(zk.doors):
                     door_info = {"door_id": i + 1}
 
-                    # active_time_tz: 0 means door is inactive
-                    try:
-                        door_info["active_time_tz"] = int(door.parameters.active_time_tz)
-                    except Exception:
-                        door_info["active_time_tz"] = 0
-                    door_info["active"] = door_info["active_time_tz"] != 0
-
                     try:
                         vm = door.parameters.verify_mode
                         door_info["verify_mode"] = str(vm.name) if hasattr(vm, 'name') else str(vm)
@@ -105,14 +98,17 @@ def main():
                     except Exception:
                         door_info["verify_mode"] = "Unknown"
 
-                    for attr in ("lock_on_close", "lock_driver_time", "magnet_alarm_duration", "sensor_type"):
+                    door_info["active"] = not door_info["verify_mode"].startswith(("Custom/Unsupported", "Unknown"))
+
+                    for attr in ("lock_on_close", "lock_driver_time", "magnet_alarm_duration"):
                         try:
                             val = getattr(door.parameters, attr)
                             door_info[attr] = str(val.name) if hasattr(val, 'name') else val
                         except Exception:
                             door_info[attr] = None
 
-                    door_info["relay_count"] = len(door.relays)
+                    door_info["lock_relay_count"] = len(door.relays.lock)
+                    door_info["reader_number"] = door.reader.number if hasattr(door.reader, 'number') else None
                     doors_data.append(door_info)
 
                 # Pull Users
@@ -158,11 +154,15 @@ def main():
                 print(json.dumps({"success": True}))
 
             elif args.action == "trigger_relay":
-                # Door lock relays are under zk.doors[n].relays, NOT zk.relays (which are aux relays)
+                # Use .relays.lock to get the door lock relay (not aux relays)
                 door_idx = args.relay_id - 1
                 if door_idx < len(zk.doors):
-                    zk.doors[door_idx].relays[0].switch_on(5)
-                    print(json.dumps({"success": True}))
+                    lock_relays = zk.doors[door_idx].relays.lock
+                    if len(lock_relays) > 0:
+                        lock_relays.switch_on(5)
+                        print(json.dumps({"success": True}))
+                    else:
+                        print(json.dumps({"success": False, "error": f"Door {args.relay_id} has no lock relay"}))
                 else:
                     print(json.dumps({"success": False, "error": f"Door {args.relay_id} out of bounds"}))
 
