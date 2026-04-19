@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from backend.database import init_db, save_events, get_latest_events, get_latest_event_timestamp
+from backend.database import init_db, save_events, get_latest_events, get_latest_event_timestamp, get_latest_event_per_door
 from backend.bridge_manager import run_zk_command
 from backend.mqtt_manager import mqtt
 
@@ -20,26 +20,18 @@ app_state = {
     "zk_ip": "",
     "zk_sn": "",
     "users_count": 0,
-    "states_restored": False
 }
 
-def _publish_new_events(events):
+def _ingest_events(events):
+    """Save events from pyzkaccess into the local database (single source of truth)."""
     if not events:
         return
-    new_events = save_events(events)
-    for event in new_events:
-        mqtt.publish_event(
-            event["timestamp"],
-            event["door_id"],
-            event["card_id"],
-            event["event_type"]
-        )
+    save_events(events)
 
-def _publish_restored_states():
-    """Queries the SQLite database upon boot to repopulate HA visually with the last known hardware states"""
-    from backend.database import get_latest_event_per_door
-    events = get_latest_event_per_door()
-    for event in events:
+def _publish_door_states():
+    """Read the latest event per door from the database and publish to MQTT.
+    Called every poll cycle so HA never falls into 'Unknown' state."""
+    for event in get_latest_event_per_door():
         mqtt.publish_event(
             event["timestamp"],
             event["door_id"],
@@ -57,7 +49,8 @@ def poll_job():
     res = run_zk_command(connstr, "poll_events", since=since)
     if res and res.get("success"):
         app_state["zk_connected"] = True
-        _publish_new_events(res.get("events", []))
+        _ingest_events(res.get("events", []))
+        _publish_door_states()
         mqtt.publish_status(True, app_state["zk_ip"], app_state["zk_sn"])
     else:
         app_state["zk_connected"] = False
@@ -100,13 +93,8 @@ def full_sync_job():
 
         _ensure_mqtt(serial=app_state["zk_sn"])
         mqtt.publish_hardware_discovery(hw, res.get("doors", []))
-        
-        # Instantly hydrate Home Assistant sensors from SQLite DB across first execution!
-        if not app_state.get("states_restored"):
-            _publish_restored_states()
-            app_state["states_restored"] = True
-            
-        _publish_new_events(res.get("events", []))
+        _ingest_events(res.get("events", []))
+        _publish_door_states()
         mqtt.publish_status(True, app_state["zk_ip"], app_state["zk_sn"])
     else:
         app_state["zk_connected"] = False
