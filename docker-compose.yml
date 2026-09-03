@@ -4,8 +4,8 @@ services:
     platform: linux/amd64
     container_name: zkt-gateway
     restart: unless-stopped
-    # ports:
-    #   - "8000:8000"
+    ports:
+      - "8000:8000"
     environment:
       - ZKT_CONNSTR=protocol=TCP,ipaddress=192.168.1.7,port=4370,timeout=4000,passwd=
       - MQTT_BROKER=
@@ -16,6 +16,8 @@ services:
       # - ZK_DEBUG=false
       # - ZK_BRIDGE_TIMEOUT=60
       # - ZK_SYNC_INTERVAL=60
+      # - ZK_EVENT_SOURCE=rt
+      # - ZK_RT_POLL_TIMEOUT=3
       # - ZK_FULL_SYNC_INTERVAL=600
-    # volumes:
-    #   - ./data:/app/data
+    volumes:
+      - ./data:/app/data

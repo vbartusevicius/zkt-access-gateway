@@ -1,17 +1,20 @@
 import os
+import re
 import json
 import logging
 from paho.mqtt import client as mqtt_client
 
 logger = logging.getLogger(__name__)
 
+# Labels follow pyzkaccess.enums.EVENT_TYPES (the library's own decode table,
+# covering both Transaction records and RTLog events)
 EVENT_TYPE_MAP = {
     0: "Normal Punch Open",
-    1: "Punch during Normal Open",
-    2: "First Card Normal Open",
-    3: "Multi-Card Open",
+    1: "Punch during Normal Open Time Zone",
+    2: "First Card Normal Open (Card)",
+    3: "Multi-Card Open (Card)",
     4: "Emergency Password Open",
-    5: "Open during Normal Open",
+    5: "Open during Normal Open Time Zone",
     6: "Linkage Event Triggered",
     7: "Cancel Alarm",
     8: "Remote Opening",
@@ -20,29 +23,46 @@ EVENT_TYPE_MAP = {
     11: "Enable Intraday Normal Open",
     12: "Open Auxiliary Output",
     13: "Close Auxiliary Output",
+    14: "Fingerprint Open",
+    15: "Multi-Card Open (Fingerprint)",
+    16: "Fingerprint during Normal Open Time Zone",
+    17: "Card + Fingerprint Open",
+    18: "First Card Normal Open (Fingerprint)",
+    19: "First Card Normal Open (Card + Fingerprint)",
     20: "Too Short Punch Interval",
-    21: "Door Inactive Time Zone",
+    21: "Door Inactive Time Zone (Card)",
     22: "Illegal Time Zone",
     23: "Access Denied",
     24: "Anti-Passback",
     25: "Interlock",
-    26: "Multi-Card Authentication",
+    26: "Multi-Card Authentication (Card)",
     27: "Unregistered Card",
     28: "Opening Timeout",
     29: "Card Expired",
     30: "Password Error",
-    200: "Door Open",
+    31: "Too Short Fingerprint Interval",
+    32: "Multi-Card Authentication (Fingerprint)",
+    33: "Fingerprint Expired",
+    34: "Unregistered Fingerprint",
+    35: "Door Inactive Time Zone (Fingerprint)",
+    36: "Door Inactive Time Zone (Exit Button)",
+    37: "Failed to Close during Normal Open",
+    101: "Duress Password Open",
+    102: "Opened Accidentally",
+    103: "Duress Fingerprint Open",
+    200: "Door Opened",
     201: "Door Closed",
     202: "Exit Button Open",
-    203: "Door Open Too Long",
-    204: "Forced Open Alarm",
-    220: "Duress Password Open",
-    221: "Opened Unexpectedly",
+    203: "Multi-Card Open (Card + Fingerprint)",
+    204: "Normal Open Time Zone Over",
+    205: "Remote Normal Opening",
+    206: "Device Start",
+    220: "Auxiliary Input Disconnected",
+    221: "Auxiliary Input Shorted",
 }
 
 
 def _sanitize_id(s):
-    import re
     return re.sub(r'[^a-zA-Z0-9]', '_', s).strip('_').lower()
 
 
@@ -54,6 +74,7 @@ class MQTTManager:
         self.device_name = "ZKTeco Access Gateway"
         self.on_command_callback = None
         self._discovery_published = False
+        self._subscriptions = set()
         self._availability_topic = f"zkt/{self.device_id}/availability"
 
     def connect(self, broker, port, user, password, serial="", on_command_callback=None):
@@ -87,12 +108,20 @@ class MQTTManager:
             self.connected = False
             return False
 
+    def subscribe(self, topic):
+        """Register a subscription; replayed automatically on every (re)connect."""
+        self._subscriptions.add(topic)
+        if self.connected and self.client:
+            self.client.subscribe(topic)
+
     def _on_connect(self, client, userdata, flags, reason_code, properties):
         if reason_code == 0:
             logger.info(f"Connected to MQTT Broker as {self.device_id}")
             self.connected = True
             self._discovery_published = False
             self.client.publish(self._availability_topic, "online", retain=True)
+            for topic in self._subscriptions:
+                self.client.subscribe(topic)
         else:
             logger.error(f"Failed to connect, return code {reason_code}")
 
@@ -131,7 +160,7 @@ class MQTTManager:
             "serial_number": serial
         }
 
-        self.client.subscribe(f"zkt/{self.device_id}/+/set")
+        self.subscribe(f"zkt/{self.device_id}/+/set")
 
         # Connection Status
         self._publish_discovery("binary_sensor", "status", {
@@ -144,7 +173,9 @@ class MQTTManager:
         }, controller_info, avail)
 
         # Utility buttons
-        for action, name, icon in [("reboot", "Reboot Controller", "mdi:restart"), ("sync_time", "Sync Time", "mdi:timer-sync")]:
+        for action, name, icon in [("reboot", "Reboot Controller", "mdi:restart"),
+                                   ("sync_time", "Sync Time", "mdi:timer-sync"),
+                                   ("cancel_alarm", "Cancel Alarm", "mdi:alarm-off")]:
             self._publish_discovery("button", action, {
                 "name": name,
                 "command_topic": f"zkt/{self.device_id}/{action}/set",
@@ -198,6 +229,15 @@ class MQTTManager:
                 "state_topic": f"zkt/{self.device_id}/door_{did}/event",
                 "value_template": "{{ value_json.card_id }}",
                 "icon": "mdi:card-account-details",
+            }, door_info, avail)
+
+            # Last User (per door) — cardholder name resolved gateway-side
+            self._publish_discovery("sensor", f"door_{did}_last_user", {
+                "name": "Last User",
+                "state_topic": f"zkt/{self.device_id}/door_{did}/event",
+                "value_template": "{{ value_json.user_name }}",
+                "icon": "mdi:account-badge",
+                "enabled_by_default": True,
             }, door_info, avail)
 
             # Door open/close sensor
@@ -280,12 +320,13 @@ class MQTTManager:
         }
         self.publish(f"zkt/{self.device_id}/status", payload)
 
-    def publish_event(self, timestamp, door_id, card_id, event_type):
+    def publish_event(self, timestamp, door_id, card_id, event_type, user_name=""):
         description = EVENT_TYPE_MAP.get(event_type, f"Unknown ({event_type})")
         payload = {
             "timestamp": timestamp,
             "door_id": door_id,
             "card_id": card_id,
+            "user_name": user_name,
             "event_type": event_type,
             "description": description
         }

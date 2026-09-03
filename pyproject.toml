@@ -14,3 +14,17 @@ dependencies = [
     "apscheduler>=3.10.1",
     "pydantic>=2.4.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+    # Real pyzkaccess models/enums for native (no-Wine) tests; SDK calls
+    # themselves are stubbed, classes just need to import.
+    "pyzkaccess>=1.1,<2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "backend/wine_script"]
+addopts = "-q"
