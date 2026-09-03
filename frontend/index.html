@@ -13,7 +13,7 @@
   <body class="dark-theme">
     <div class="flex min-h-screen">
       <!-- Sidebar -->
-      <aside class="w-[280px] py-8 px-6 flex flex-col gap-10 border-r border-panel-border bg-panel-bg backdrop-blur-md rounded-none shadow-soft">
+      <aside class="w-[280px] py-8 px-6 flex flex-col gap-10 border-r border-panel-border bg-panel-bg backdrop-blur-md rounded-none shadow-soft shrink-0">
         <div class="flex items-center gap-4">
           <div class="w-8 h-8 rounded-lg shadow-glow bg-gradient-to-br from-primary to-accent"></div>
           <h1 class="text-xl font-semibold tracking-tight">ZKAccess Gateway</h1>
@@ -23,13 +23,25 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
             Dashboard
           </button>
-          <button class="nav-item" data-target="doors">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M12 5l7 7-7 7"></path></svg>
-            Doors & Events
+          <button class="nav-item" data-target="events">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+            Events
           </button>
           <button class="nav-item" data-target="users">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-            Users & Keys
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-4-4h-1"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+            Users &amp; Keys
+          </button>
+          <button class="nav-item" data-target="doors">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9"></path><path d="M18 2v4"></path><path d="M21 5h-6"></path><circle cx="16" cy="13" r="1"></circle></svg>
+            Doors
+          </button>
+          <button class="nav-item" data-target="access">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            Access Rules
+          </button>
+          <button class="nav-item" data-target="device">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            Device
           </button>
         </nav>
       </aside>
@@ -51,15 +63,42 @@
           </div>
         </section>
 
-        <!-- Events Log -->
-        <section id="doors" class="view-section hidden">
+        <!-- Events View -->
+        <section id="events" class="view-section hidden">
           <header class="flex justify-between items-center mb-8">
-            <h2 class="text-3xl font-semibold tracking-tight">Activity Logs</h2>
-            <button class="btn primary" id="refresh-doors-btn">Refresh</button>
+            <h2 class="text-3xl font-semibold tracking-tight">Activity Log</h2>
+            <button class="btn primary" id="refresh-events-btn">Refresh</button>
           </header>
 
+          <div class="glass-panel p-6 mb-6">
+            <div class="grid grid-cols-2 md:grid-cols-6 gap-4 items-end">
+              <div class="form-group mb-0">
+                <label>Door</label>
+                <select id="filter-door"></select>
+              </div>
+              <div class="form-group mb-0">
+                <label>Event Type</label>
+                <select id="filter-type"></select>
+              </div>
+              <div class="form-group mb-0">
+                <label>From</label>
+                <input type="datetime-local" id="filter-from">
+              </div>
+              <div class="form-group mb-0">
+                <label>To</label>
+                <input type="datetime-local" id="filter-to">
+              </div>
+              <div class="form-group mb-0 md:col-span-2">
+                <label>Search Card / PIN / Name</label>
+                <div class="flex gap-2">
+                  <input type="text" id="filter-q" placeholder="Card, PIN or cardholder name">
+                  <button class="btn secondary" id="filter-clear-btn" title="Clear filters">Clear</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="glass-panel p-6">
-            <h3 class="text-xl font-semibold mb-6">Recent Events</h3>
             <div class="w-full overflow-x-auto">
               <table id="events-table" class="w-full border-collapse">
                 <thead>
@@ -67,7 +106,11 @@
                     <th>Time</th>
                     <th>Door</th>
                     <th>Card</th>
-                    <th>Event Type</th>
+                    <th>User</th>
+                    <th>PIN</th>
+                    <th>Event</th>
+                    <th>Verify</th>
+                    <th>Direction</th>
                   </tr>
                 </thead>
                 <tbody id="events-tbody">
@@ -84,10 +127,14 @@
             <h2 class="text-3xl font-semibold tracking-tight">Authorized Personnel</h2>
             <button class="btn primary" id="refresh-users-btn">Refresh</button>
           </header>
-          
+
           <div class="glass-panel mb-8 p-6">
-            <h3 class="mb-6 text-xl font-semibold">Create New User</h3>
-            <form id="create-user-form" class="grid grid-cols-1 md:grid-cols-[1fr_2fr_1fr_auto_auto] gap-6 items-end">
+            <h3 class="mb-6 text-xl font-semibold">Register New User</h3>
+            <form id="create-user-form" class="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
+              <div class="form-group mb-0">
+                <label>Cardholder Name</label>
+                <input type="text" id="new-user-name" placeholder="Jane Doe">
+              </div>
               <div class="form-group mb-0">
                 <label>PIN (Numeric ID)</label>
                 <input type="text" id="new-user-pin" required title="Unique arbitrary number between 1 and 65534" placeholder="1234">
@@ -100,10 +147,26 @@
                 </div>
               </div>
               <div class="form-group mb-0">
-                <label>Access Group</label>
-                <input type="text" id="new-user-group" value="0">
+                <label>Keypad Password</label>
+                <input type="text" id="new-user-password" placeholder="Up to 8 digits">
               </div>
-               <div class="form-group mb-0 flex flex-col items-center pb-3">
+              <div class="form-group mb-0">
+                <label>Access Group</label>
+                <input type="text" id="new-user-group" value="1">
+              </div>
+              <div class="form-group mb-0">
+                <label>Allowed Doors</label>
+                <div id="new-user-doors" class="flex gap-3 flex-wrap px-1 py-2"></div>
+              </div>
+              <div class="form-group mb-0">
+                <label>Valid From</label>
+                <input type="date" id="new-user-start">
+              </div>
+              <div class="form-group mb-0">
+                <label>Valid To</label>
+                <input type="date" id="new-user-end">
+              </div>
+              <div class="form-group mb-0 flex flex-col items-center pb-3">
                 <label>Admin</label>
                 <input type="checkbox" id="new-user-admin" class="w-auto">
               </div>
@@ -117,9 +180,11 @@
             <table id="users-table" class="w-full border-collapse">
               <thead>
                 <tr>
+                  <th>Name</th>
                   <th>PIN</th>
                   <th>Card ID</th>
                   <th>Group</th>
+                  <th>Validity</th>
                   <th>Privileges</th>
                   <th>Last Swiped</th>
                   <th>Actions</th>
@@ -131,7 +196,74 @@
             </table>
           </div>
         </section>
+
+        <!-- Doors Config View -->
+        <section id="doors" class="view-section hidden">
+          <header class="flex justify-between items-center mb-8">
+            <h2 class="text-3xl font-semibold tracking-tight">Door Configuration</h2>
+            <div class="flex gap-3 items-center">
+              <button class="btn secondary" id="cancel-alarm-btn">Cancel Alarm</button>
+              <button class="btn primary" id="refresh-doors-btn">Reload from Device</button>
+            </div>
+          </header>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6" id="doors-config-container">
+            <!-- Dynamic Content -->
+          </div>
+        </section>
+
+        <!-- Access Rules View -->
+        <section id="access" class="view-section hidden">
+          <header class="flex justify-between items-center mb-8">
+            <h2 class="text-3xl font-semibold tracking-tight">Access Rules</h2>
+            <button class="btn primary" id="refresh-access-btn">Reload from Device</button>
+          </header>
+
+          <div class="tab-bar mb-6" id="access-tabs"></div>
+          <div class="glass-panel p-6" id="access-content">
+            <!-- Dynamic Content -->
+          </div>
+        </section>
+
+        <!-- Device View -->
+        <section id="device" class="view-section hidden">
+          <header class="flex justify-between items-center mb-8">
+            <h2 class="text-3xl font-semibold tracking-tight">Device Settings</h2>
+            <div class="flex gap-3 items-center">
+              <button class="btn secondary" id="search-devices-btn">Search Network</button>
+              <button class="btn primary" id="refresh-device-btn">Reload from Device</button>
+              <button class="btn !bg-danger text-white shadow-[0_4px_14px_0_rgba(239,68,68,0.39)]" id="device-reboot-btn">Reboot</button>
+            </div>
+          </header>
+
+          <div class="glass-panel p-6 mb-6 hidden" id="search-results-panel">
+            <h3 class="mb-4 text-xl font-semibold">Discovered Controllers</h3>
+            <div class="w-full overflow-x-auto">
+              <table class="w-full border-collapse">
+                <thead>
+                  <tr><th>IP</th><th>MAC</th><th>Model</th><th>Serial</th><th>Firmware</th></tr>
+                </thead>
+                <tbody id="search-results-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="glass-panel p-6">
+            <h3 class="mb-6 text-xl font-semibold">Controller Parameters</h3>
+            <div id="device-params-container"><!-- Dynamic Content --></div>
+          </div>
+        </section>
       </main>
+    </div>
+
+    <!-- Modal -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+      <div class="modal glass-panel">
+        <div class="flex justify-between items-center mb-6">
+          <h3 class="text-xl font-semibold" id="modal-title">Edit</h3>
+          <button class="btn secondary !px-3 !py-1.5 text-lg leading-none" id="modal-close-btn">&times;</button>
+        </div>
+        <div id="modal-content"></div>
+      </div>
     </div>
 
     <!-- Toast Notifications -->

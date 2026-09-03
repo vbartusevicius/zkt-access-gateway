@@ -64,12 +64,46 @@
     @apply block mb-2 text-sm font-medium text-text-secondary;
   }
   
-  .form-group input[type="text"] {
+  .form-group input[type="text"],
+  .form-group input[type="number"],
+  .form-group input[type="password"],
+  .form-group input[type="date"],
+  .form-group input[type="datetime-local"],
+  .form-group input[type="time"],
+  .form-group select {
     @apply w-full px-4 py-3 bg-black/20 border border-panel-border rounded-lg text-text-primary font-sans text-[0.95rem] transition-all;
+    color-scheme: dark;
   }
-  
-  .form-group input[type="text"]:focus {
+
+  .form-group input:focus,
+  .form-group select:focus {
     @apply outline-none border-primary ring-2 ring-primary/20;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-white/5 text-text-secondary border border-panel-border whitespace-nowrap;
+  }
+  .badge.success { @apply bg-success/15 text-success border-success/20; }
+  .badge.danger  { @apply bg-danger/15 text-danger border-danger/20; }
+  .badge.warning { @apply bg-yellow-500/15 text-yellow-400 border-yellow-500/20; }
+  .badge.accent  { @apply bg-accent/15 text-accent border-accent/20; }
+  .badge.info    { @apply bg-primary/15 text-primary border-primary/20; }
+
+  .tab-bar {
+    @apply flex gap-2 flex-wrap;
+  }
+  .tab {
+    @apply px-5 py-2.5 rounded-lg font-medium text-sm cursor-pointer transition-all border border-panel-border bg-white/5 text-text-secondary hover:bg-white/10 font-sans;
+  }
+  .tab.active {
+    @apply text-primary border-primary bg-primary/15;
+  }
+
+  .modal-overlay {
+    @apply fixed inset-0 bg-black/60 backdrop-blur-sm z-[90] flex items-start justify-center overflow-y-auto p-8;
+  }
+  .modal {
+    @apply w-full max-w-3xl p-8 max-h-[85vh] overflow-y-auto;
   }
   
   .form-group input[type="checkbox"] {

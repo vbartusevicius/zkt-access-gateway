@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend-tests:
+    # Tests run inside the production image's test stage, so the environment
+    # (Python version, dependency resolution) matches what ships.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Compile check (fast, native python)
+        run: python3 -m compileall -q backend tests
+
+      - name: Build test stage
+        run: docker build --platform linux/amd64 --target test -t zkt-access-gateway:test .
+
+      - name: Run tests in the image
+        run: docker run --rm zkt-access-gateway:test
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm install --no-audit --no-fund
+          npm run build

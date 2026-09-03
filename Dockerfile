@@ -7,8 +7,8 @@ RUN npm install
 COPY frontend/ ./
 RUN npm run build
 
-# Stage 2: Main Image
-FROM tobix/pywine:3.8
+# Stage 2: Backend runtime base (shared by the final image and the test stage)
+FROM tobix/pywine:3.8 AS backend-base
 
 # Install native linux dependencies and python3 for the API
 RUN apt-get update \
@@ -37,6 +37,18 @@ RUN uv sync --no-dev
 # Copy backend source
 COPY backend/ ./backend/
 
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Stage 3: Test runner — same venv as production plus the dev group.
+# Usage: docker build --target test -t zkt-access-gateway:test . && docker run --rm zkt-access-gateway:test
+FROM backend-base AS test
+RUN uv sync  # full sync including the dev group (pytest, httpx, pyzkaccess)
+COPY tests/ ./tests/
+CMD ["pytest"]
+
+# Stage 4: Final Image
+FROM backend-base
+
 # Copy built frontend into the backend's static directory to serve it
 COPY --from=frontend-builder /build/dist ./backend/static
 
@@ -44,8 +56,6 @@ EXPOSE 8000
 
 ENV ZKT_CONNSTR=""
 ENV MQTT_BROKER=""
-
-ENV PATH="/app/.venv/bin:$PATH"
 
 # Start the API server, explicitly enforcing a 0-byte core dump limit to prevent QEMU memory dumps on failure
 CMD ["/bin/sh", "-c", "ulimit -c 0 && exec uvicorn backend.main:app --host 0.0.0.0 --port 8000"]

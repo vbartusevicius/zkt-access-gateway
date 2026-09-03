@@ -1,15 +1,20 @@
 import os
+import re
 import time
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Body
+from fastapi import FastAPI, Body, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from backend.database import init_db, save_events, get_latest_events, get_latest_event_timestamp, get_latest_event_per_door
+from backend.database import init_db, save_events, save_users, save_hardware, save_user_name, \
+    get_events_filtered, get_latest_event_timestamp, get_latest_event_per_door, \
+    get_users, get_hardware
 from backend.bridge_manager import run_zk_command
-from backend.mqtt_manager import mqtt
+from backend.mqtt_manager import mqtt, EVENT_TYPE_MAP
+from backend.wine_script.zk_commands import REGISTRY
+from backend.wine_script.zk_commands.spec import TABLE_SCHEMAS, DOOR_PARAM_SPECS, DEVICE_PARAM_SPECS
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -32,21 +37,32 @@ def _publish_door_states():
     """Read the latest event per door from the database and publish to MQTT.
     Called every poll cycle so HA never falls into 'Unknown' state."""
     for event in get_latest_event_per_door():
+        if not event["door_id"]:
+            continue  # skip device-level events (no door context for HA)
         mqtt.publish_event(
             event["timestamp"],
             event["door_id"],
             event["card_id"],
-            event["event_type"]
+            event["event_type"],
+            user_name=event.get("user_name") or ""
         )
 
 def poll_job():
-    """Lightweight job — only fetches unread events from the device."""
+    """Event job — pulls new events via the SDK RTLog (fast snapshot; full
+    history is backfilled by full_sync_job from the Transaction table, so
+    events survive gateway downtimes). Set ZK_EVENT_SOURCE=table to poll the
+    Transaction table directly instead."""
     connstr = os.environ.get("ZKT_CONNSTR")
     if not connstr:
         return
 
-    since = get_latest_event_timestamp()
-    res = run_zk_command(connstr, "poll_events", since=since)
+    if os.environ.get("ZK_EVENT_SOURCE", "rt") == "table":
+        res = run_zk_command(connstr, "poll_events", since=get_latest_event_timestamp())
+        if res and res.get("events_error"):
+            logger.warning(f"Device poll reported a transactions read error: {res['events_error']}")
+    else:
+        rt_timeout = int(os.environ.get("ZK_RT_POLL_TIMEOUT", 3))
+        res = run_zk_command(connstr, "rt_events", timeout=rt_timeout)
     if res and res.get("success"):
         app_state["zk_connected"] = True
         _ingest_events(res.get("events", []))
@@ -87,7 +103,6 @@ def full_sync_job():
         app_state["zk_sn"] = hw.get("serial_number", "")
         app_state["users_count"] = len(res.get("users", []))
 
-        from backend.database import save_users, save_hardware
         save_users(res.get("users", []))
         save_hardware(hw, res.get("doors", []))
 
@@ -102,25 +117,46 @@ def full_sync_job():
 
 scheduler = BackgroundScheduler()
 
+def _execute_command(cmd_cls, kwargs):
+    """Uniform command executor for both HTTP routes and MQTT commands."""
+    connstr = os.environ.get("ZKT_CONNSTR", "")
+    if cmd_cls.needs_connection and not connstr:
+        return {"success": False, "detail": "Missing connection string"}
+
+    res = run_zk_command(connstr, cmd_cls.name, **cmd_cls.validate(kwargs))
+    if res and res.get("success"):
+        if cmd_cls.refresh_after:
+            scheduler.add_job(full_sync_job)
+        return res
+    return {"success": False, "detail": (res or {}).get("error", "Unknown error")}
+
+# Compile MQTT command topics declared by WriteCommands into matchers:
+# pattern like "relay_{relay_id}" matches the middle of zkt/<device>/<pattern>/set
+MQTT_COMMANDS = [
+    (
+        re.compile(re.sub(r"\{(\w+)\}", lambda m: f"(?P<{m.group(1)}>[^/]+)", cmd_cls.mqtt_topic)),
+        cmd_cls
+    )
+    for cmd_cls in REGISTRY.values()
+    if cmd_cls.mqtt_topic
+]
+
 def handle_mqtt_command(topic: str, payload: str):
     logger.info(f"Received MQTT command via {topic}")
-    connstr = os.environ.get("ZKT_CONNSTR")
-    if not connstr:
+    prefix = f"zkt/{mqtt.device_id}/"
+    if not topic.startswith(prefix) or not topic.endswith("/set"):
         return
-        
-    try:
-        if topic.endswith("/reboot/set"):
-            run_zk_command(connstr, "restart")
-        elif topic.endswith("/sync_time/set"):
-            run_zk_command(connstr, "sync_time")
-        elif "/relay_" in topic and topic.endswith("/set"):
-            relay_id = int(topic.split("/relay_")[1].split("/")[0])
-            run_zk_command(connstr, "trigger_relay", relay_id=relay_id)
-        elif "/aux_" in topic and topic.endswith("/set"):
-            relay_id = int(topic.split("/aux_")[1].split("/")[0])
-            run_zk_command(connstr, "trigger_aux", relay_id=relay_id)
-    except Exception as e:
-        logger.error(f"Failed to handle incoming MQTT command: {e}")
+    middle = topic[len(prefix):-len("/set")]
+
+    for matcher, cmd_cls in MQTT_COMMANDS:
+        match = matcher.fullmatch(middle)
+        if match:
+            result = _execute_command(cmd_cls, match.groupdict())
+            if not result.get("success"):
+                logger.error(f"MQTT command {cmd_cls.name} failed: {result.get('detail')}")
+            return
+
+    logger.warning(f"Unhandled MQTT command topic: {topic}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -136,7 +172,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(poll_job, 'interval', seconds=poll_interval,
                        id='poll', coalesce=True, misfire_grace_time=poll_interval)
     scheduler.start()
-    
+
     yield
     # Shutdown
     scheduler.shutdown()
@@ -146,7 +182,31 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# API routes
+# --- Generated command routes declared by WriteCommands in zk_commands ---
+def _make_command_handler(cmd_cls):
+    async def handler(request: Request):
+        payload = {}
+        if request.headers.get("content-type", "").startswith("application/json"):
+            try:
+                body = await request.json()
+                if isinstance(body, dict):
+                    payload = body
+            except Exception:
+                payload = {}
+        kwargs = {**request.path_params, **payload}
+        return _execute_command(cmd_cls, kwargs)
+    handler.__name__ = f"cmd_{cmd_cls.name}"
+    return handler
+
+for _cmd_cls in REGISTRY.values():
+    if _cmd_cls.http_path:
+        app.add_api_route(
+            f"/api/{_cmd_cls.http_path}",
+            _make_command_handler(_cmd_cls),
+            methods=[_cmd_cls.http_method.upper()]
+        )
+
+# --- Queries served from the local cache/database ---
 @app.get("/api/status")
 def get_status():
     return {
@@ -158,17 +218,41 @@ def get_status():
     }
 
 @app.get("/api/events")
-def get_events():
-    return {"events": get_latest_events(50)}
+def get_events(limit: int = 100, door_id: int = None, event_type: int = None,
+               q: str = None, dt_from: str = None, dt_to: str = None):
+    events = get_events_filtered({
+        "limit": limit, "door_id": door_id, "event_type": event_type,
+        "q": q, "dt_from": dt_from, "dt_to": dt_to,
+    })
+    for ev in events:
+        ev["description"] = EVENT_TYPE_MAP.get(ev.get("event_type"), f"Unknown ({ev.get('event_type')})")
+    return {"events": events}
+
+@app.get("/api/schemas")
+def get_schemas():
+    """Pure-data specs that drive form generation in the UI (and the REST of the app)."""
+    return {
+        "tables": TABLE_SCHEMAS,
+        "door_params": DOOR_PARAM_SPECS,
+        "device_params": DEVICE_PARAM_SPECS,
+        "event_types": EVENT_TYPE_MAP,
+    }
 
 @app.get("/api/users")
 def get_users_api():
-    from backend.database import get_users
     return {"users": get_users()}
+
+@app.post("/api/users")
+def create_or_update_user(payload: dict = Body(...)):
+    """Explicit route (supersedes registry generation for create_user) so the
+    gateway-local cardholder name is persisted alongside the device write."""
+    result = _execute_command(REGISTRY["create_user"], payload)
+    if result.get("success") and "name" in payload:
+        save_user_name(payload.get("pin", ""), payload.get("name") or "")
+    return result
 
 @app.get("/api/hardware")
 def get_hardware_api():
-    from backend.database import get_hardware
     return get_hardware()
 
 @app.get("/api/settings")
@@ -186,85 +270,12 @@ def get_all_settings():
 def update_settings(payload: dict = Body(...)):
     return {"success": False, "error": "Settings are now statically managed via environment variables (docker-compose.yml)"}
 
-@app.post("/api/users")
-def create_user(payload: dict = Body(...)):
-    connstr = os.environ.get("ZKT_CONNSTR")
-    if not connstr:
-        return {"success": False, "detail": "Missing connection string"}
-        
-    res = run_zk_command(connstr, "create_user", 
-                         pin=payload.get("pin", ""),
-                         card=payload.get("card", ""),
-                         group=payload.get("group", "1"),
-                         admin=bool(payload.get("super_authorize", False)))
-    
-    if res and res.get("success"):
-        scheduler.add_job(full_sync_job)
-        return {"success": True}
-    return {"success": False, "detail": res.get("error", "Unknown error")}
-
-@app.delete("/api/users/{pin}")
-def delete_user(pin: str):
-    connstr = os.environ.get("ZKT_CONNSTR")
-    if not connstr:
-        return {"success": False, "detail": "Missing connection string"}
-        
-    res = run_zk_command(connstr, "delete_user", pin=pin)
-    if res and res.get("success"):
-        scheduler.add_job(full_sync_job)
-        return {"success": True}
-    return {"success": False, "detail": res.get("error", "Unknown error")}
-
-@app.post("/api/relays/{relay_id}/trigger")
-def trigger_relay(relay_id: int):
-    connstr = os.environ.get("ZKT_CONNSTR")
-    if not connstr:
-        return {"success": False, "detail": "Missing connection string"}
-        
-    res = run_zk_command(connstr, "trigger_relay", relay_id=relay_id)
-    if res and res.get("success"):
-        return {"success": True}
-    return {"success": False, "detail": res.get("error", "Unknown error")}
-
-@app.post("/api/aux/{relay_id}/trigger")
-def trigger_aux(relay_id: int):
-    connstr = os.environ.get("ZKT_CONNSTR")
-    if not connstr:
-        return {"success": False, "detail": "Missing connection string"}
-        
-    res = run_zk_command(connstr, "trigger_aux", relay_id=relay_id)
-    if res and res.get("success"):
-        return {"success": True}
-    return {"success": False, "detail": res.get("error", "Unknown error")}
-
-@app.post("/api/device/sync-time")
-def sync_device_time():
-    connstr = os.environ.get("ZKT_CONNSTR")
-    if not connstr:
-        return {"success": False, "detail": "Missing connection string"}
-        
-    res = run_zk_command(connstr, "sync_time")
-    if res and res.get("success"):
-        return {"success": True}
-    return {"success": False, "detail": res.get("error", "Unknown error")}
-
-@app.post("/api/device/reboot")
-def reboot_device():
-    connstr = os.environ.get("ZKT_CONNSTR")
-    if not connstr:
-        return {"success": False, "detail": "Missing connection string"}
-        
-    res = run_zk_command(connstr, "restart")
-    if res and res.get("success"):
-        return {"success": True}
-    return {"success": False, "detail": res.get("error", "Unknown error")}
-
 @app.post("/api/test_connection")
 def test_connection(payload: dict = Body(...)):
     connstr = payload.get("zkt_connstr")
     if not connstr:
         return {"success": False, "detail": "Missing connection string"}
-        
+
     res = run_zk_command(connstr, "test")
     if res and res.get("success"):
         return {"success": True, "ip": res.get("ip")}
@@ -276,7 +287,7 @@ if os.path.exists(STATIC_DIR):
     assets_dir = os.path.join(STATIC_DIR, "assets")
     if os.path.exists(assets_dir):
         app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
-    
+
     @app.get("/{full_path:path}")
     def serve_frontend(full_path: str):
         path = os.path.join(STATIC_DIR, full_path)
