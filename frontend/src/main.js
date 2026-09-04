@@ -13,23 +13,42 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({
 const fmtDT = (s) => (s ? new Date(s).toLocaleString() : '—');
 const humanize = (s) => (s ? String(s).replace(/_/g, ' ') : '—');
 
-async function apiGet(path, params = {}) {
+const DEVICE_TIMEOUT_MS = 90000;
+const QUERY_TIMEOUT_MS = 15000;
+
+async function apiGet(path, params = {}, { timeout = QUERY_TIMEOUT_MS } = {}) {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== null && v !== '') qs.append(k, v);
   }
-  const res = await fetch(`${API_BASE}${path}${qs.size ? '?' + qs : ''}`);
+  const res = await fetch(`${API_BASE}${path}${qs.size ? '?' + qs : ''}`,
+    { signal: AbortSignal.timeout(timeout) });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json();
 }
 
-async function apiSend(path, { method = 'POST', body = null } = {}) {
-  const opts = { method };
+async function apiSend(path, { method = 'POST', body = null, timeout = DEVICE_TIMEOUT_MS } = {}) {
+  const opts = { method, signal: AbortSignal.timeout(timeout) };
   if (body !== null) {
     opts.headers = { 'Content-Type': 'application/json' };
     opts.body = JSON.stringify(body);
   }
   const res = await fetch(`${API_BASE}${path}`, opts);
   return res.json();
+}
+
+function guardLoad(view) {
+  const original = view.load.bind(view);
+  view.load = async function guarded(...args) {
+    if (view._loading) return;
+    view._loading = true;
+    try {
+      return await original(...args);
+    } finally {
+      view._loading = false;
+    }
+  };
+  return view;
 }
 
 function showToast(message, type = 'success') {
@@ -551,9 +570,10 @@ class DoorsView {
 
   async load() {
     const container = document.getElementById('doors-config-container');
-    container.innerHTML = '<p class="text-text-secondary col-span-full">Loading door parameters from device...</p>';
+    container.innerHTML = '<p class="text-text-secondary col-span-full">Reading door parameters from the controller (this can take a while)...</p>';
     try {
-      const [hw, params] = await Promise.all([apiGet('/hardware'), apiGet('/doors/params')]);
+      const hw = await apiGet('/hardware');
+      const params = await apiGet('/doors/params', {}, { timeout: DEVICE_TIMEOUT_MS });
       container.innerHTML = '';
 
       if (!params.success) {
@@ -591,7 +611,7 @@ class DoorsView {
       }
     } catch (e) {
       console.error(e);
-      container.innerHTML = '<p class="text-danger col-span-full">Failed to load doors.</p>';
+      container.innerHTML = `<p class="text-danger col-span-full">Failed to load doors: ${esc(e.name === 'TimeoutError' ? 'the controller did not answer in time (it may be busy syncing)' : e.message)}</p>`;
     }
   }
 
@@ -669,7 +689,7 @@ class AccessView {
         const hw = await apiGet('/hardware');
         this.hwDoors = (hw.doors || []).filter(d => d.active).map(d => d.door_id);
       }
-      const data = await apiGet(`/tables/${this.activeTable}`);
+      const data = await apiGet(`/tables/${this.activeTable}`, {}, { timeout: DEVICE_TIMEOUT_MS });
 
       if (!data.success) {
         content.innerHTML = `<p class="text-danger">Failed to read table: ${esc(data.detail || 'unknown error')}</p>`;
@@ -706,7 +726,7 @@ class AccessView {
         btn.addEventListener('click', () => this.deleteRow(schema, rows[btn.dataset.idx])));
     } catch (e) {
       console.error(e);
-      content.innerHTML = '<p class="text-danger">Failed to load table.</p>';
+      content.innerHTML = `<p class="text-danger">Failed to load table: ${esc(e.name === 'TimeoutError' ? 'the controller did not answer in time (it may be busy syncing)' : e.message)}</p>`;
     }
   }
 
@@ -782,9 +802,9 @@ class DeviceView {
 
   async load() {
     const container = document.getElementById('device-params-container');
-    container.innerHTML = '<p class="text-text-secondary">Loading parameters from device...</p>';
+    container.innerHTML = '<p class="text-text-secondary">Reading parameters from the controller (this can take a while)...</p>';
     try {
-      const data = await apiGet('/device/params');
+      const data = await apiGet('/device/params', {}, { timeout: DEVICE_TIMEOUT_MS });
       container.innerHTML = '';
 
       if (!data.success) {
@@ -828,7 +848,7 @@ class DeviceView {
       container.appendChild(grid);
     } catch (e) {
       console.error(e);
-      container.innerHTML = '<p class="text-danger">Failed to load device parameters.</p>';
+      container.innerHTML = `<p class="text-danger">Failed to load device parameters: ${esc(e.name === 'TimeoutError' ? 'the controller did not answer in time (it may be busy syncing)' : e.message)}</p>`;
     }
   }
 
@@ -927,26 +947,39 @@ function bindGlobalActions() {
   });
 }
 
+const AUTO_REFRESH_VIEWS = ['dashboard', 'events', 'users'];
+
+async function loadSchemas(attempts = 3) {
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      return await apiGet('/schemas');
+    } catch (e) {
+      console.error(`Failed to load schemas (attempt ${i}/${attempts})`, e);
+      if (i < attempts) await new Promise(r => setTimeout(r, 1000 * i));
+    }
+  }
+  showToast('Could not load configuration schemas — Doors/Access/Device forms may be unavailable. Retry with Refresh.', 'error');
+  return { tables: {}, door_params: [], device_params: [], event_types: {} };
+}
+
 // Init
 let appNav;
 (async function boot() {
-  try {
-    schemas = await apiGet('/schemas');
-  } catch (e) {
-    console.error('Failed to load schemas', e);
-    schemas = { tables: {}, door_params: [], device_params: [], event_types: {} };
-  }
+  schemas = await loadSchemas();
 
-  views.events = new EventsView();
-  views.users = new UsersView();
-  views.doors = new DoorsView();
-  views.access = new AccessView();
-  views.device = new DeviceView();
+  views.events = guardLoad(new EventsView());
+  views.users = guardLoad(new UsersView());
+  views.doors = guardLoad(new DoorsView());
+  views.access = guardLoad(new AccessView());
+  views.device = guardLoad(new DeviceView());
+  views.dashboard = guardLoad(views.dashboard);
 
   appNav = new AppNavigation();
   bindGlobalActions();
   views.dashboard.load();
 
-  // Periodic refresh of the visible view only
-  setInterval(() => views[currentView]?.load(), 15000);
+  // Periodic refresh of the visible view, DB-backed views only
+  setInterval(() => {
+    if (AUTO_REFRESH_VIEWS.includes(currentView)) views[currentView]?.load();
+  }, 15000);
 })();

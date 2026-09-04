@@ -32,6 +32,15 @@ MQTT/Home Assistant and a web UI. Full ZKAccess 3.5 desktop-software replacement
 3. **All device SDK calls are short-lived subprocesses** (`bridge_manager.py`,
    serialized via `ZK_LOCK`). Never spawn long-lived Wine daemons; process exit
    is the memory-leak defense.
+   **Never call the bridge from the event loop.** `run_zk_command` blocks for
+   seconds; `async def` routes must wrap it in `run_in_threadpool` (sync `def`
+   routes are fine — FastAPI threadpools them). Regression coverage:
+   `tests/test_concurrency.py`. Symptom if broken: DB-only endpoints return
+   empty bodies / NetworkError while a device read is in flight.
+   Correspondingly, the UI only auto-refreshes DB-backed views
+   (`AUTO_REFRESH_VIEWS` in `frontend/src/main.js`); device-reading views
+   (Doors/Access/Device) refresh on demand and are `guardLoad`-wrapped so
+   overlapping loads can't queue up on the hardware lock.
 4. **Schemas with free/SPEC data** live in `zk_commands/spec.py` (`TABLE_SCHEMAS`,
    `DOOR_PARAM_SPECS`, `DEVICE_PARAM_SPECS`) — it drives backend validation *and*
    the web UI form generation via `/api/schemas`.

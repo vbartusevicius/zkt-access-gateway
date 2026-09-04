@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Body, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from starlette.concurrency import run_in_threadpool
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from backend.database import init_db, save_events, save_users, save_hardware, save_user_name, \
@@ -194,7 +195,7 @@ def _make_command_handler(cmd_cls):
             except Exception:
                 payload = {}
         kwargs = {**request.path_params, **payload}
-        return _execute_command(cmd_cls, kwargs)
+        return await run_in_threadpool(_execute_command, cmd_cls, kwargs)
     handler.__name__ = f"cmd_{cmd_cls.name}"
     return handler
 
