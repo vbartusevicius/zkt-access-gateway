@@ -99,6 +99,7 @@ class CreateUser(WriteCommand):
             "doors": int, "timezone_id": int}
     http_path = None  # explicit route in main.py persists the local name too
     refresh_after = True
+    invalidates = ("table:User", "table:UserAuthorize")
 
     def execute(self, zk, pin="", card="", group="1", password="",
                 start_time="", end_time="", super_authorize=False,
@@ -141,6 +142,7 @@ class DeleteUser(WriteCommand):
     http_path = "users/{pin}"
     http_method = "delete"
     refresh_after = True
+    invalidates = ("table:User", "table:UserAuthorize")
 
     def execute(self, zk, pin=""):
         from pyzkaccess.tables import User
@@ -218,6 +220,7 @@ class SyncTime(WriteCommand):
     name = "sync_time"
     http_path = "device/sync-time"
     mqtt_topic = "sync_time"
+    invalidates = ("device_params",)
 
     def execute(self, zk):
         zk.parameters.datetime = datetime.now()
@@ -228,6 +231,7 @@ class SetDeviceParam(WriteCommand):
     name = "set_device_param"
     args = {"name": str, "value": str}
     http_path = "device/param"
+    invalidates = ("device_params",)
 
     def execute(self, zk, name="", value=""):
         spec = device_param_spec(name)
@@ -250,6 +254,7 @@ class SetDoorParam(WriteCommand):
     name = "set_door_param"
     args = {"door_id": int, "name": str, "value": str}
     http_path = "doors/{door_id}/param"
+    invalidates = ("door_params",)
 
     def execute(self, zk, door_id=0, name="", value=""):
         spec = door_param_spec(name)
@@ -283,6 +288,7 @@ class UpsertTableRow(WriteCommand):
     args = {"table": str, "data": str}
     http_path = "tables/{table}"
     refresh_after = True
+    invalidates = ("table:{table}",)
 
     def execute(self, zk, table="", data=""):
         schema = table_schema(table)
@@ -306,6 +312,7 @@ class DeleteTableRow(WriteCommand):
     http_path = "tables/{table}/row"
     http_method = "delete"
     refresh_after = True
+    invalidates = ("table:{table}",)
 
     def execute(self, zk, table="", key=""):
         schema = table_schema(table)

@@ -46,6 +46,92 @@ def _value(value):
     return value
 
 
+SDK_PARAMS_PER_CALL = 30  # PULL SDK GetDeviceParam limit
+
+
+def _prop_meta(owner, name):
+    """Extract (query_template, data_type, prop_type) from a pyzkaccess
+    parameter property so many params can be fetched in one SDK call.
+
+    Returns None when the property doesn't follow the _make_prop shape, in
+    which case callers fall back to a plain getattr (one call per param).
+    """
+    prop = getattr(type(owner), name, None)
+    if not isinstance(prop, property) or prop.fget is None or not prop.fget.__closure__:
+        return None
+    cells = dict(zip(prop.fget.__code__.co_freevars,
+                     [c.cell_contents for c in prop.fget.__closure__]))
+    tpl = cells.get("query_tpl")
+    if not isinstance(tpl, str):
+        return None
+    return tpl, cells.get("data_type"), cells.get("prop_type")
+
+
+def _convert_raw(raw, data_type, prop_type):
+    """Mirror pyzkaccess _make_prop read(): data_type(raw) then prop_type()."""
+    value = data_type(raw) if data_type else raw
+    if prop_type and data_type is not prop_type:
+        value = prop_type(value)
+    return value
+
+
+def _batch_read_params(zk, requests):
+    """Fetch many device parameters in as few SDK calls as possible.
+
+    requests: list of (key, owner, spec) where `owner` is the parameters
+    object (zk.parameters or door.parameters) and `key` identifies the result.
+    Returns {key: (value, error)}.
+    """
+    resolved, fallback = {}, []
+    buffer_size = 4096
+    for key, owner, spec in requests:
+        buffer_size = max(buffer_size, getattr(owner, "buffer_size", 4096))
+        meta = _prop_meta(owner, spec["name"])
+        if meta is None:
+            fallback.append((key, owner, spec))
+            continue
+        tpl, data_type, prop_type = meta
+        try:
+            query = tpl.format(self=owner)
+        except Exception:
+            fallback.append((key, owner, spec))
+            continue
+        resolved[key] = (query, data_type, prop_type, spec)
+
+    results = {}
+    queries = [v[0] for v in resolved.values()]
+    raw_values = {}
+    for i in range(0, len(queries), SDK_PARAMS_PER_CALL):
+        chunk = queries[i:i + SDK_PARAMS_PER_CALL]
+        try:
+            raw_values.update(zk.sdk.get_device_param(parameters=tuple(chunk),
+                                                      buffer_size=buffer_size))
+        except Exception as e:
+            for key, (query, _, _, _) in resolved.items():
+                if query in chunk:
+                    results[key] = (None, str(e))
+
+    for key, (query, data_type, prop_type, spec) in resolved.items():
+        if key in results:
+            continue
+        if query not in raw_values:
+            results[key] = (None, "parameter not returned by device")
+            continue
+        try:
+            results[key] = (_spec_value(spec, _convert_raw(raw_values[query], data_type, prop_type)), "")
+        except Exception as e:
+            results[key] = (None, str(e))
+
+    # Params whose shape we couldn't introspect: one call each
+    for key, owner, spec in fallback:
+        try:
+            results[key] = (_spec_value(spec, getattr(owner, spec["name"])), "")
+        except Exception as e:
+            results[key] = (None, str(e))
+
+    return results
+
+
 def _spec_value(spec, value):
     """Convert an SDK parameter value by its spec type — selects/ints stay
     numeric so UI select inputs can be prefilled."""
@@ -160,11 +246,18 @@ class StateDump(ReadCommand):
 
         events, events_error = fetch_transactions(zk, since)
 
+        # Warm the parameter caches in this same subprocess: batched SDK reads
+        # cost a few round-trips here but save a whole Wine start per page view.
+        door_params = DoorParams().execute(zk)
+        device_params = DeviceParams().execute(zk)
+
         payload = {
             "hardware": hw,
             "doors": doors_data,
             "users": users,
-            "events": events
+            "events": events,
+            "door_params": door_params,
+            "device_params": device_params,
         }
         if events_error:
             payload["events_error"] = events_error
@@ -233,17 +326,19 @@ class DeviceParams(ReadCommand):
     name = "device_params"
     http_path = "device/params"
     http_method = "get"
+    cache_key = "device_params"
 
     def execute(self, zk):
-        params = {}
-        errors = {}
+        owner = zk.parameters
+        results = _batch_read_params(
+            zk, [(spec["name"], owner, spec) for spec in DEVICE_PARAM_SPECS])
+
+        params, errors = {}, {}
         for spec in DEVICE_PARAM_SPECS:
-            name = spec["name"]
-            try:
-                params[name] = _spec_value(spec, getattr(zk.parameters, name))
-            except Exception as e:
-                params[name] = None
-                errors[name] = str(e)
+            value, error = results.get(spec["name"], (None, "not read"))
+            params[spec["name"]] = value
+            if error:
+                errors[spec["name"]] = error
         payload = {"params": params}
         if errors:
             payload["param_errors"] = errors
@@ -255,18 +350,26 @@ class DoorParams(ReadCommand):
     name = "door_params"
     http_path = "doors/params"
     http_method = "get"
+    cache_key = "door_params"
 
     def execute(self, zk):
+        door_list = list(zk.doors)
+
+        # One batched SDK read for every param of every door
+        requests = []
+        for i, door in enumerate(door_list):
+            for spec in DOOR_PARAM_SPECS:
+                requests.append(((i, spec["name"]), door.parameters, spec))
+        results = _batch_read_params(zk, requests)
+
         doors = []
-        for i, door in enumerate(zk.doors):
+        for i, _door in enumerate(door_list):
             entry = {"door_id": i + 1, "params": {}, "param_errors": {}}
             for spec in DOOR_PARAM_SPECS:
-                name = spec["name"]
-                try:
-                    entry["params"][name] = _spec_value(spec, getattr(door.parameters, name))
-                except Exception as e:
-                    entry["params"][name] = None
-                    entry["param_errors"][name] = str(e)
+                value, error = results.get((i, spec["name"]), (None, "not read"))
+                entry["params"][spec["name"]] = value
+                if error:
+                    entry["param_errors"][spec["name"]] = error
             if not entry["param_errors"]:
                 del entry["param_errors"]
             doors.append(entry)
@@ -279,17 +382,35 @@ class ReadTable(ReadCommand):
     args = {"table": str}
     http_path = "tables/{table}"
     http_method = "get"
+    cache_key = "table:{table}"
 
     ALLOWED = {"User", "Transaction"} | set(WRITABLE_TABLES)
+
+    WIDE_TABLES = {"Timezone": 1 << 18, "UserAuthorize": 1 << 16,
+                   "MultiCard": 1 << 16, "InOutFun": 1 << 16}
 
     def execute(self, zk, table=""):
         if table not in self.ALLOWED:
             return {"success": False, "error": "Unknown or disallowed table '%s'" % table}
-        rows = []
-        for row in zk.table(table):
-            data = row.dict
-            if not isinstance(data, dict):
-                data = dict(data)
-            rows.append(data)
-        # Normalize enums/datetimes/tuples to JSON-friendly values
-        return {"rows": json.loads(json.dumps(rows, cls=SafeJSONEncoder))}
+
+        start = self.WIDE_TABLES.get(table)
+        attempts = [start, 1 << 20, 1 << 22] if start else [None, 1 << 18, 1 << 20, 1 << 22]
+
+        last_error = None
+        for buffer_size in attempts:
+            zk.query_buffer_size = buffer_size
+            try:
+                rows = []
+                for row in zk.table(table):
+                    data = row.dict
+                    if not isinstance(data, dict):
+                        data = dict(data)
+                    rows.append(data)
+                # Normalize enums/datetimes/tuples to JSON-friendly values
+                return {"rows": json.loads(json.dumps(rows, cls=SafeJSONEncoder)),
+                        "buffer_size": buffer_size}
+            except Exception as e:
+                last_error = e
+
+        return {"success": False,
+                "error": "Failed to read table %s (retried with larger buffers): %s" % (table, last_error)}

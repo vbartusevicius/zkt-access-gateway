@@ -46,6 +46,16 @@ def init_db():
                 name TEXT
             )
         ''')
+        # Cached device reads (params, access tables). The API serves these
+        # without touching the controller until a write invalidates them or
+        # the user explicitly refreshes.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS device_cache (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                fetched_at TEXT
+            )
+        ''')
         # Migrate: add event detail columns if coming from an older schema
         for column, ddl in (("entry_exit", "TEXT"), ("verify_mode", "TEXT")):
             cols = [r[1] for r in cursor.execute("PRAGMA table_info(events)")]
@@ -129,6 +139,35 @@ def save_hardware(hw_dict, doors_list):
             "hw": hw_dict,
             "doors": doors_list
         })))
+        conn.commit()
+
+def cache_set(key, value):
+    """Store a device read. `value` must be JSON-serializable."""
+    from datetime import datetime, timezone
+    with get_db() as conn:
+        conn.execute("REPLACE INTO device_cache (key, value, fetched_at) VALUES (?, ?, ?)",
+                     (key, json.dumps(value), datetime.now(timezone.utc).isoformat()))
+        conn.commit()
+
+def cache_get(key):
+    """Return (value, fetched_at) or (None, None) when not cached."""
+    with get_db() as conn:
+        row = conn.execute("SELECT value, fetched_at FROM device_cache WHERE key = ?",
+                           (key,)).fetchone()
+    if not row:
+        return None, None
+    try:
+        return json.loads(row["value"]), row["fetched_at"]
+    except (ValueError, TypeError):
+        return None, None
+
+def cache_invalidate(key):
+    """Drop a cache entry, or a whole family when key ends with '*'."""
+    with get_db() as conn:
+        if key.endswith("*"):
+            conn.execute("DELETE FROM device_cache WHERE key LIKE ?", (key[:-1] + "%",))
+        else:
+            conn.execute("DELETE FROM device_cache WHERE key = ?", (key,))
         conn.commit()
 
 def save_user_name(pin, name):

@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import threading
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,14 @@ def run_zk_command(connstr: str, action: str, **kwargs) -> dict:
         else:
             cmd.extend([f"--{key}", str(value)])
 
+    queued_at = time.monotonic()
+    logger.info("[BRIDGE] queued action=%s%s", action,
+                " (waiting for hardware lock)" if ZK_LOCK.locked() else "")
+
     with ZK_LOCK:
+        waited = time.monotonic() - queued_at
+        started_at = time.monotonic()
+        logger.info("[BRIDGE] start  action=%s (lock wait %.1fs)", action, waited)
         try:
             result = subprocess.run(
                 cmd,
@@ -38,6 +46,8 @@ def run_zk_command(connstr: str, action: str, **kwargs) -> dict:
                 text=True,
                 timeout=int(os.environ.get("ZK_BRIDGE_TIMEOUT", 60))
             )
+            logger.info("[BRIDGE] done   action=%s rc=%s in %.1fs (lock wait %.1fs)",
+                        action, result.returncode, time.monotonic() - started_at, waited)
 
             if result.returncode != 0:
                 logger.error(
@@ -60,6 +70,8 @@ def run_zk_command(connstr: str, action: str, **kwargs) -> dict:
             return data
 
         except subprocess.TimeoutExpired:
+            logger.error("[BRIDGE] timeout action=%s after %.1fs", action, time.monotonic() - started_at)
             return {"success": False, "error": "Connection to ZK device timed out"}
         except Exception as e:
+            logger.error("[BRIDGE] failed action=%s: %s", action, e)
             return {"success": False, "error": f"Subprocess execution failed: {str(e)}"}

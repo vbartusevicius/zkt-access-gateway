@@ -11,7 +11,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from backend.database import init_db, save_events, save_users, save_hardware, save_user_name, \
     get_events_filtered, get_latest_event_timestamp, get_latest_event_per_door, \
-    get_users, get_hardware
+    get_users, get_hardware, cache_get, cache_set, cache_invalidate
 from backend.bridge_manager import run_zk_command
 from backend.mqtt_manager import mqtt, EVENT_TYPE_MAP
 from backend.wine_script.zk_commands import REGISTRY
@@ -90,7 +90,9 @@ def _ensure_mqtt(serial=""):
         time.sleep(0.1)
 
 def full_sync_job():
-    """Heavy job — pulls hardware, users, doors, and events."""
+    """Heavy job — pulls hardware, users, doors, events and the batched
+    door/device parameters, then warms the caches the UI reads from.
+    Runs on startup, on ZK_FULL_SYNC_INTERVAL, and after mutating commands."""
     connstr = os.environ.get("ZKT_CONNSTR")
     if not connstr:
         return
@@ -107,6 +109,10 @@ def full_sync_job():
         save_users(res.get("users", []))
         save_hardware(hw, res.get("doors", []))
 
+        for key in ("door_params", "device_params"):
+            if res.get(key):
+                cache_set(key, res[key])
+
         _ensure_mqtt(serial=app_state["zk_sn"])
         mqtt.publish_hardware_discovery(hw, res.get("doors", []))
         _ingest_events(res.get("events", []))
@@ -118,17 +124,43 @@ def full_sync_job():
 
 scheduler = BackgroundScheduler()
 
-def _execute_command(cmd_cls, kwargs):
-    """Uniform command executor for both HTTP routes and MQTT commands."""
+def _cache_key_for(cmd_cls, kwargs):
+    if not cmd_cls.cache_key:
+        return None
+    try:
+        return cmd_cls.cache_key.format(**kwargs)
+    except (KeyError, IndexError):
+        return None
+
+def _execute_command(cmd_cls, kwargs, refresh=False):
+    """Uniform command executor for both HTTP routes and MQTT commands.
+
+    Cache-backed reads are served from the database unless `refresh` is set;
+    successful writes drop the cache entries they invalidate so the next read
+    goes back to the controller."""
+    cache_key = _cache_key_for(cmd_cls, kwargs)
+    if cache_key and not refresh:
+        value, fetched_at = cache_get(cache_key)
+        if value is not None:
+            return {**value, "success": True, "cached": True, "fetched_at": fetched_at}
+
     connstr = os.environ.get("ZKT_CONNSTR", "")
     if cmd_cls.needs_connection and not connstr:
         return {"success": False, "detail": "Missing connection string"}
 
     res = run_zk_command(connstr, cmd_cls.name, **cmd_cls.validate(kwargs))
     if res and res.get("success"):
+        if cache_key:
+            cache_set(cache_key, {k: v for k, v in res.items() if k != "success"})
+        for template in cmd_cls.invalidates:
+            try:
+                cache_invalidate(template.format(**kwargs))
+            except (KeyError, IndexError):
+                logger.warning("Could not resolve cache invalidation '%s' for %s",
+                               template, cmd_cls.name)
         if cmd_cls.refresh_after:
             scheduler.add_job(full_sync_job)
-        return res
+        return {**res, "cached": False}
     return {"success": False, "detail": (res or {}).get("error", "Unknown error")}
 
 # Compile MQTT command topics declared by WriteCommands into matchers:
@@ -195,7 +227,8 @@ def _make_command_handler(cmd_cls):
             except Exception:
                 payload = {}
         kwargs = {**request.path_params, **payload}
-        return await run_in_threadpool(_execute_command, cmd_cls, kwargs)
+        refresh = request.query_params.get("refresh", "").lower() in ("1", "true", "yes")
+        return await run_in_threadpool(_execute_command, cmd_cls, kwargs, refresh)
     handler.__name__ = f"cmd_{cmd_cls.name}"
     return handler
 
@@ -284,6 +317,19 @@ def test_connection(payload: dict = Body(...)):
 
 # Serve frontend if exists
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+
+def resolve_static_file(full_path, static_dir=None):
+    """Resolve a request path to a file inside the static directory.
+
+    Returns None for anything that isn't a contained regular file, so SPA
+    routes fall through to index.html and '..' segments can't escape."""
+    static_dir = static_dir or STATIC_DIR
+    root = os.path.realpath(static_dir)
+    candidate = os.path.realpath(os.path.join(root, full_path.lstrip("/")))
+    if candidate != root and not candidate.startswith(root + os.sep):
+        return None
+    return candidate if os.path.isfile(candidate) else None
+
 if os.path.exists(STATIC_DIR):
     assets_dir = os.path.join(STATIC_DIR, "assets")
     if os.path.exists(assets_dir):
@@ -291,7 +337,8 @@ if os.path.exists(STATIC_DIR):
 
     @app.get("/{full_path:path}")
     def serve_frontend(full_path: str):
-        path = os.path.join(STATIC_DIR, full_path)
-        if os.path.exists(path) and os.path.isfile(path):
+        path = resolve_static_file(full_path)
+        if path:
             return FileResponse(path)
+        # Unknown path -> hand it to the SPA router (deep links, reloads)
         return FileResponse(os.path.join(STATIC_DIR, "index.html"))

@@ -266,6 +266,12 @@
       </div>
     </div>
 
+    <!-- Controller activity indicator -->
+    <div id="device-busy" class="hidden fixed bottom-8 left-8 z-[95] glass-panel px-4 py-3 flex items-center gap-3">
+      <span class="spinner"></span>
+      <span class="text-sm text-text-secondary" data-busy-label>Talking to controller...</span>
+    </div>
+
     <!-- Toast Notifications -->
     <div id="toast-container" class="fixed bottom-8 right-8 flex flex-col gap-2 z-[100]"></div>
     <script type="module" src="/src/main.js"></script>

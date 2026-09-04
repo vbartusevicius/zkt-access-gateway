@@ -99,6 +99,15 @@
     @apply text-primary border-primary bg-primary/15;
   }
 
+  .spinner {
+    @apply inline-block w-4 h-4 rounded-full border-2 border-primary/30 border-t-primary;
+    animation: spin 0.7s linear infinite;
+  }
+
+  .btn:disabled {
+    @apply opacity-60 cursor-not-allowed;
+  }
+
   .modal-overlay {
     @apply fixed inset-0 bg-black/60 backdrop-blur-sm z-[90] flex items-start justify-center overflow-y-auto p-8;
   }
@@ -143,6 +152,10 @@
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .toast {

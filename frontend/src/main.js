@@ -37,6 +37,59 @@ async function apiSend(path, { method = 'POST', body = null, timeout = DEVICE_TI
   return res.json();
 }
 
+// Device requests are serialized by a hardware lock on the server and take
+// seconds each. Queue them client-side too: browsers only allow ~6 concurrent
+// connections per host, so letting several pile up stalls even DB requests.
+const deviceQueue = {
+  chain: Promise.resolve(),
+  pending: 0,
+  run(task) {
+    this.pending++;
+    updateBusyIndicator();
+    const result = this.chain.then(task, task);
+    this.chain = result.catch(() => {}).then(() => {
+      this.pending--;
+      updateBusyIndicator();
+    });
+    return result;
+  },
+};
+
+function updateBusyIndicator() {
+  const el = document.getElementById('device-busy');
+  if (!el) return;
+  const n = deviceQueue.pending;
+  el.classList.toggle('hidden', n === 0);
+  const label = el.querySelector('[data-busy-label]');
+  if (label) {
+    label.textContent = n > 1
+      ? `Talking to controller (${n} queued)...`
+      : 'Talking to controller...';
+  }
+}
+
+// Device-backed GET; served from the gateway cache unless refresh is set.
+// Queued and given the long timeout because a refresh talks to the controller.
+function apiGetDevice(path, params = {}, { refresh = false } = {}) {
+  const query = refresh ? { ...params, refresh: 1 } : params;
+  if (!refresh) return apiGet(path, query, { timeout: DEVICE_TIMEOUT_MS });
+  return deviceQueue.run(() => apiGet(path, query, { timeout: DEVICE_TIMEOUT_MS }));
+}
+
+// "cached 2m ago" / "live" badge for device-backed views
+function cacheBadge(data) {
+  if (!data || data.cached === false) return '<span class="badge success">live from controller</span>';
+  if (!data.fetched_at) return '';
+  const age = Math.max(0, Math.round((Date.now() - new Date(data.fetched_at)) / 1000));
+  const human = age < 60 ? `${age}s` : age < 3600 ? `${Math.round(age / 60)}m` : `${Math.round(age / 3600)}h`;
+  return `<span class="badge" title="Press Reload from Device for current values">cached ${human} ago</span>`;
+}
+
+// Device-backed mutation; queued
+function apiSendDevice(path, opts = {}) {
+  return deviceQueue.run(() => apiSend(path, opts));
+}
+
 function guardLoad(view) {
   const original = view.load.bind(view);
   view.load = async function guarded(...args) {
@@ -293,7 +346,7 @@ class DashboardView {
   async _trigger(doorId, kind) {
     try {
       showToast(`Triggering ${kind} for Door ${doorId}...`, 'neutral');
-      const data = await apiSend(`/${kind}/${doorId}/trigger`);
+      const data = await apiSendDevice(`/${kind}/${doorId}/trigger`);
       showToast(data.success ? `Door ${doorId} ${kind} triggered!` : `Failed: ${data.detail}`,
         data.success ? 'success' : 'error');
     } catch (e) {
@@ -412,7 +465,7 @@ class UsersView {
 
   async saveUser(fields, isNew = false, closeFn = null) {
     try {
-      const data = await apiSend('/users', { body: fields });
+      const data = await apiSendDevice('/users', { body: fields });
       if (data.success) {
         showToast(`User ${fields.pin} ${isNew ? 'created' : 'updated'}!`, 'success');
         if (isNew) document.getElementById('create-user-form').reset();
@@ -428,12 +481,15 @@ class UsersView {
 
   async load() {
     try {
-      const [data, hw] = await Promise.all([apiGet('/users'), apiGet('/hardware')]);
-      this.hwDoors = (hw.doors || []).filter(d => d.active).map(d => d.door_id);
+      const data = await apiGet('/users');
 
-      // Populate door checkboxes of the create form once the door list is known
+      // Door list only changes on a full sync — fetch it once, not every refresh
       const doorsHolder = document.getElementById('new-user-doors');
-      if (doorsHolder && !doorsHolder.children.length) {
+      if (!this.hwDoors || !doorsHolder?.children.length) {
+        const hw = await apiGet('/hardware');
+        this.hwDoors = (hw.doors || []).filter(d => d.active).map(d => d.door_id);
+      }
+      if (doorsHolder && !doorsHolder.children.length && this.hwDoors.length) {
         doorsHolder.innerHTML = this.hwDoors.map(d => `
           <label class="flex items-center gap-1.5 text-sm cursor-pointer">
             <input type="checkbox" class="w-auto" data-door-bit="${d}">
@@ -474,9 +530,26 @@ class UsersView {
       }
 
       tbody.querySelectorAll('.edit-user-btn').forEach(btn =>
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
           const u = data.users.find(x => String(x.pin) === btn.dataset.pin);
-          if (u) this.openEditModal(u);
+          if (!u) return;
+          // Door access lives on the device, so it can take seconds to read.
+          // Show progress on the button and open the form as soon as it lands.
+          const label = btn.textContent;
+          btn.disabled = true;
+          btn.textContent = 'Loading...';
+          let auth = null;
+          try {
+            const res = await apiGetDevice('/tables/UserAuthorize');
+            if (res.success) auth = (res.rows || []).find(r => String(r.pin) === String(u.pin));
+            else showToast(`Door access unreadable: ${res.detail || 'unknown error'}`, 'error');
+          } catch (e) {
+            showToast(`Could not read door access: ${e.name === 'TimeoutError' ? 'controller timed out' : e.message}`, 'error');
+          } finally {
+            btn.disabled = false;
+            btn.textContent = label;
+          }
+          this.openEditModal(u, auth);
         }));
       tbody.querySelectorAll('.delete-user-btn').forEach(btn =>
         btn.addEventListener('click', () => this.deleteUser(btn.dataset.pin)));
@@ -485,14 +558,7 @@ class UsersView {
     }
   }
 
-  async openEditModal(u) {
-    // Current door access (UserAuthorize row) for this user, if any
-    let auth = null;
-    try {
-      const res = await apiGet('/tables/UserAuthorize');
-      if (res.success) auth = (res.rows || []).find(r => String(r.pin) === String(u.pin));
-    } catch (e) { /* access table unreadable — proceed without it */ }
-
+  async openEditModal(u, auth = null) {
     const fields = [
       { name: 'name', label: 'Cardholder Name', type: 'str' },
       { name: 'card', label: 'Card Number', type: 'str' },
@@ -521,7 +587,7 @@ class UsersView {
       const hadAuth = !!auth;
       if (hadAuth && values.doors === 0) {
         // Revoking all access: drop the authorization row instead of upserting
-        apiSend('/tables/UserAuthorize/row', { method: 'DELETE', body: { key: { pin: u.pin } } })
+        apiSendDevice('/tables/UserAuthorize/row', { method: 'DELETE', body: { key: { pin: u.pin } } })
           .then(() => { values.doors = undefined; this.saveUser(values, false, close); });
         return;
       }
@@ -532,7 +598,7 @@ class UsersView {
   async deleteUser(pin) {
     if (!confirm(`Are you sure you want to delete user ${pin}?`)) return;
     try {
-      const data = await apiSend(`/users/${pin}`, { method: 'DELETE' });
+      const data = await apiSendDevice(`/users/${pin}`, { method: 'DELETE' });
       showToast(data.success ? `User ${pin} deleted!` : `Failed: ${data.detail}`,
         data.success ? 'success' : 'error');
       if (data.success) this.load();
@@ -559,27 +625,35 @@ class UsersView {
 
 class DoorsView {
   constructor() {
-    document.getElementById('refresh-doors-btn')?.addEventListener('click', () => this.load());
+    document.getElementById('refresh-doors-btn')?.addEventListener('click', () => this.load(true));
     document.getElementById('cancel-alarm-btn')?.addEventListener('click', async () => {
       showToast('Cancelling alarm...', 'neutral');
-      const data = await apiSend('/device/cancel-alarm');
+      const data = await apiSendDevice('/device/cancel-alarm');
       showToast(data.success ? 'Alarm cancelled.' : `Failed: ${data.detail}`,
         data.success ? 'success' : 'error');
     });
   }
 
-  async load() {
+  async load(refresh = false) {
     const container = document.getElementById('doors-config-container');
-    container.innerHTML = '<p class="text-text-secondary col-span-full">Reading door parameters from the controller (this can take a while)...</p>';
+    container.innerHTML = refresh
+      ? '<p class="text-text-secondary col-span-full">Reading door parameters from the controller (this can take a while)...</p>'
+      : '<p class="text-text-secondary col-span-full">Loading door configuration...</p>';
     try {
       const hw = await apiGet('/hardware');
-      const params = await apiGet('/doors/params', {}, { timeout: DEVICE_TIMEOUT_MS });
+      const params = await apiGetDevice('/doors/params', {}, { refresh });
+      this.lastMeta = params;
       container.innerHTML = '';
 
       if (!params.success) {
         container.innerHTML = `<p class="text-danger col-span-full">Failed to read door params: ${esc(params.detail || 'unknown error')}</p>`;
         return;
       }
+
+      const meta = document.createElement('div');
+      meta.className = 'col-span-full flex items-center gap-2 -mb-2';
+      meta.innerHTML = cacheBadge(params);
+      container.appendChild(meta);
 
       const hwDoors = (hw.doors || []);
       for (const door of params.doors || []) {
@@ -643,7 +717,7 @@ class DoorsView {
     const failures = [];
     for (const change of changes) {
       try {
-        const data = await apiSend(`/doors/${doorId}/param`, { body: change });
+        const data = await apiSendDevice(`/doors/${doorId}/param`, { body: change });
         if (!data.success) failures.push(`${change.name}: ${data.detail}`);
       } catch (e) {
         failures.push(`${change.name}: request failed`);
@@ -662,18 +736,22 @@ class DoorsView {
 class AccessView {
   constructor() {
     this.activeTable = null;
-    document.getElementById('refresh-access-btn')?.addEventListener('click', () => this.load(this.activeTable));
+    document.getElementById('refresh-access-btn')?.addEventListener('click', () => this.load(this.activeTable, true));
   }
 
-  async load(table) {
+  async load(table, refresh = false) {
     const tabs = Object.keys(schemas.tables);
+    if (table && !tabs.includes(table)) table = undefined;  // ignore bad URLs
     const tabBar = document.getElementById('access-tabs');
     tabBar.innerHTML = '';
     for (const name of tabs) {
       const btn = document.createElement('button');
       btn.className = `tab ${name === (table || this.activeTable) ? 'active' : ''}`;
       btn.textContent = schemas.tables[name].label;
-      btn.addEventListener('click', () => { this.activeTable = name; this.load(name); });
+      btn.addEventListener('click', () => {
+        this.activeTable = name;
+        appNav.switchView('access', { param: name });
+      });
       tabBar.appendChild(btn);
     }
 
@@ -689,7 +767,7 @@ class AccessView {
         const hw = await apiGet('/hardware');
         this.hwDoors = (hw.doors || []).filter(d => d.active).map(d => d.door_id);
       }
-      const data = await apiGet(`/tables/${this.activeTable}`, {}, { timeout: DEVICE_TIMEOUT_MS });
+      const data = await apiGetDevice(`/tables/${this.activeTable}`, {}, { refresh });
 
       if (!data.success) {
         content.innerHTML = `<p class="text-danger">Failed to read table: ${esc(data.detail || 'unknown error')}</p>`;
@@ -699,7 +777,10 @@ class AccessView {
       const rows = data.rows || [];
       let html = `
         <div class="flex justify-between items-center mb-4">
-          <h3 class="text-xl font-semibold">${esc(schema.label)}</h3>
+          <div class="flex items-center gap-3">
+            <h3 class="text-xl font-semibold">${esc(schema.label)}</h3>
+            ${cacheBadge(data)}
+          </div>
           <button class="btn primary !px-4 !py-2 text-sm" id="add-row-btn">+ Add</button>
         </div>`;
 
@@ -761,7 +842,7 @@ class AccessView {
     openModal(`${schema.label} — ${Object.keys(row).length ? 'Edit' : 'Add'}`, html, async (content, close) => {
       const fields = collectForm(content, schema.fields);
       try {
-        const data = await apiSend(`/tables/${this.activeTable}`, { body: { data: fields } });
+        const data = await apiSendDevice(`/tables/${this.activeTable}`, { body: { data: fields } });
         if (data.success) {
           showToast('Row saved to device.', 'success');
           close();
@@ -778,7 +859,7 @@ class AccessView {
   async deleteRow(schema, row) {
     if (!confirm(`Delete this ${schema.label} row?`)) return;
     try {
-      const data = await apiSend(`/tables/${this.activeTable}/row`, { method: 'DELETE', body: { key: row } });
+      const data = await apiSendDevice(`/tables/${this.activeTable}/row`, { method: 'DELETE', body: { key: row } });
       showToast(data.success ? 'Row deleted.' : `Failed: ${data.detail}`, data.success ? 'success' : 'error');
       if (data.success) this.load(this.activeTable);
     } catch (e) {
@@ -789,28 +870,35 @@ class AccessView {
 
 class DeviceView {
   constructor() {
-    document.getElementById('refresh-device-btn')?.addEventListener('click', () => this.load());
+    document.getElementById('refresh-device-btn')?.addEventListener('click', () => this.load(true));
     document.getElementById('search-devices-btn')?.addEventListener('click', () => this.search());
     document.getElementById('device-reboot-btn')?.addEventListener('click', async () => {
       if (!confirm('Are you sure you want to reboot the controller?')) return;
       showToast('Rebooting controller...', 'neutral');
-      const data = await apiSend('/device/reboot');
+      const data = await apiSendDevice('/device/reboot');
       showToast(data.success ? 'Device rebooting.' : `Failed: ${data.detail}`,
         data.success ? 'success' : 'error');
     });
   }
 
-  async load() {
+  async load(refresh = false) {
     const container = document.getElementById('device-params-container');
-    container.innerHTML = '<p class="text-text-secondary">Reading parameters from the controller (this can take a while)...</p>';
+    container.innerHTML = refresh
+      ? '<p class="text-text-secondary">Reading parameters from the controller (this can take a while)...</p>'
+      : '<p class="text-text-secondary">Loading device parameters...</p>';
     try {
-      const data = await apiGet('/device/params', {}, { timeout: DEVICE_TIMEOUT_MS });
+      const data = await apiGetDevice('/device/params', {}, { refresh });
       container.innerHTML = '';
 
       if (!data.success) {
         container.innerHTML = `<p class="text-danger">Failed to read parameters: ${esc(data.detail || 'unknown error')}</p>`;
         return;
       }
+
+      const meta = document.createElement('div');
+      meta.className = 'mb-4';
+      meta.innerHTML = cacheBadge(data);
+      container.appendChild(meta);
 
       const grid = document.createElement('div');
       grid.className = 'grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-4';
@@ -835,7 +923,7 @@ class DeviceView {
             const value = spec.type === 'bool' ? el.checked : el.value;
             if (!confirm(`Set ${spec.label} to "${value}"?`)) return;
             try {
-              const res = await apiSend('/device/param', { body: { name: spec.name, value } });
+              const res = await apiSendDevice('/device/param', { body: { name: spec.name, value } });
               showToast(res.success ? `${spec.label} updated.` : `Failed: ${res.detail}`,
                 res.success ? 'success' : 'error');
             } catch (e) {
@@ -858,7 +946,7 @@ class DeviceView {
     panel.classList.remove('hidden');
     tbody.innerHTML = '<tr><td colspan="5" class="text-text-secondary">Broadcasting search on the local segment (this can take a while)...</td></tr>';
     try {
-      const data = await apiSend('/device/search');
+      const data = await apiSendDevice('/device/search');
       if (!data.success) {
         tbody.innerHTML = `<tr><td colspan="5" class="text-danger">Search failed: ${esc(data.detail)}</td></tr>`;
         return;
@@ -897,6 +985,26 @@ const views = {
   device: null,
 };
 
+const VIEW_IDS = ['dashboard', 'events', 'users', 'doors', 'access', 'device'];
+const VIEW_TITLES = {
+  dashboard: 'Dashboard', events: 'Activity Log', users: 'Users & Keys',
+  doors: 'Doors', access: 'Access Rules', device: 'Device',
+};
+
+// The app is served from the domain root and the backend falls back to
+// index.html for unknown paths, so each view gets a real URL.
+function routeFromLocation() {
+  const [view, param] = location.pathname.split('/').filter(Boolean);
+  return {
+    view: VIEW_IDS.includes(view) ? view : 'dashboard',
+    param: param ? decodeURIComponent(param) : null,
+  };
+}
+
+function routePath(view, param) {
+  return param ? `/${view}/${encodeURIComponent(param)}` : `/${view}`;
+}
+
 class AppNavigation {
   constructor() {
     this.navItems = document.querySelectorAll('.nav-item');
@@ -905,9 +1013,13 @@ class AppNavigation {
         this.switchView(e.currentTarget.dataset.target);
       });
     });
+    window.addEventListener('popstate', (e) => {
+      const route = e.state?.view ? e.state : routeFromLocation();
+      this.switchView(route.view, { param: route.param, push: false });
+    });
   }
 
-  switchView(targetId) {
+  switchView(targetId, { param = null, push = true } = {}) {
     currentView = targetId;
     this.navItems.forEach(btn => btn.classList.remove('active'));
     document.querySelector(`[data-target="${targetId}"]`)?.classList.add('active');
@@ -921,7 +1033,15 @@ class AppNavigation {
     void activeSection.offsetWidth; // Force reflow
     activeSection.classList.add('active');
 
-    views[targetId]?.load();
+    const path = routePath(targetId, param);
+    const state = { view: targetId, param };
+    if (push && location.pathname !== path) history.pushState(state, '', path);
+    else if (!push) history.replaceState(state, '', path);
+    document.title = `${VIEW_TITLES[targetId] || targetId} · ZKAccess Gateway`;
+
+    // Access Rules keeps the selected table in the URL
+    if (targetId === 'access') views.access?.load(param || undefined);
+    else views[targetId]?.load();
   }
 }
 
@@ -930,14 +1050,14 @@ function bindGlobalActions() {
   document.getElementById('refresh-hardware-btn')?.addEventListener('click', () => views.dashboard.load());
   document.getElementById('sync-time-btn')?.addEventListener('click', async () => {
     showToast('Syncing device time...', 'neutral');
-    const data = await apiSend('/device/sync-time');
+    const data = await apiSendDevice('/device/sync-time');
     showToast(data.success ? 'Device time synchronized!' : `Failed: ${data.detail}`,
       data.success ? 'success' : 'error');
   });
   document.getElementById('reboot-btn')?.addEventListener('click', async () => {
     if (!confirm('Are you sure you want to reboot the controller? This will take it offline for a few moments!')) return;
     showToast('Rebooting controller...', 'neutral');
-    const data = await apiSend('/device/reboot');
+    const data = await apiSendDevice('/device/reboot');
     showToast(data.success ? 'Device rebooting.' : `Failed: ${data.detail}`,
       data.success ? 'success' : 'error');
   });
@@ -976,10 +1096,15 @@ let appNav;
 
   appNav = new AppNavigation();
   bindGlobalActions();
-  views.dashboard.load();
 
-  // Periodic refresh of the visible view, DB-backed views only
+  // Restore the view from the URL (deep links, reloads, bookmarks)
+  const route = routeFromLocation();
+  appNav.switchView(route.view, { param: route.param, push: false });
+
+  // Periodic refresh of the visible view: DB-backed views only, and never
+  // while the controller is busy (device requests would queue behind these).
   setInterval(() => {
+    if (deviceQueue.pending > 0) return;
     if (AUTO_REFRESH_VIEWS.includes(currentView)) views[currentView]?.load();
   }, 15000);
 })();

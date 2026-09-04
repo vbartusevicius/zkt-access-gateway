@@ -57,5 +57,4 @@ EXPOSE 8000
 ENV ZKT_CONNSTR=""
 ENV MQTT_BROKER=""
 
-# Start the API server, explicitly enforcing a 0-byte core dump limit to prevent QEMU memory dumps on failure
-CMD ["/bin/sh", "-c", "ulimit -c 0 && exec uvicorn backend.main:app --host 0.0.0.0 --port 8000"]
+CMD ["/bin/sh", "-c", "ulimit -c 0 && wineserver -p && (wine python -c 'import pyzkaccess' >/dev/null 2>&1 || true) && exec uvicorn backend.main:app --host 0.0.0.0 --port 8000"]

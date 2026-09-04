@@ -25,6 +25,13 @@ class Command:
     mqtt_topic = None    # e.g. "relay_{relay_id}" → zkt/<device>/relay_{relay_id}/set
     refresh_after = False  # schedule a full sync after a successful write
 
+    # Cache-backed reads: the API serves the stored result instead of talking
+    # to the controller, until a write invalidates it or the caller refreshes.
+    # Templates may reference declared args, e.g. "table:{table}".
+    cache_key = None
+    # Cache keys a successful write makes stale; a trailing '*' clears a family.
+    invalidates = ()
+
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         if cls.name:
